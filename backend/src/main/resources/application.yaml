@@ -1,0 +1,42 @@
+server:
+  port: 8888 # Port của Backend
+
+spring:
+  application:
+    name: secure-doc-backend
+
+  # --- 1. MONGODB ---
+  data:
+    mongodb:
+      # Kết nối qua port 27099 (Đã map trong Docker)
+      uri: mongodb://admin:admin_password@localhost:27099/doc_management_db?authSource=admin
+      auto-index-creation: true # Tự động tạo index (@Indexed)
+
+  # --- 2. ELASTICSEARCH ---
+  elasticsearch:
+    # Kết nối qua port 9299 (Đã map trong Docker)
+    uris: http://localhost:9299
+    socket-timeout: 10s
+    connection-timeout: 5s
+
+  # --- 3. FILE UPLOAD LIMITS ---
+  servlet:
+    multipart:
+      max-file-size: 1GB        # Kích thước tối đa 1 file
+      max-request-size: 1GB     # Kích thước tối đa cả request
+
+  # --- 4. JACKSON (JSON FORMAT) ---
+  jackson:
+    default-property-inclusion: non_null # Không trả về field null
+    serialization:
+      write-dates-as-timestamps: false # Trả về ngày dạng ISO String (2025-01-01...)
+
+# --- 5. CUSTOM APP CONFIG ---
+app:
+  jwt:
+    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970 # Chuỗi bí mật (64 bytes hex)
+    expiration-ms: 3600000        # 1 giờ (Access Token)
+    refresh-expiration-ms: 604800000 # 7 ngày (Refresh Token)
+
+  security:
+    master-key: "MY_SUPER_SECRET_MASTER_KEY_CHANGE_ME" # Dùng để mã hóa FileKey trong DB (Tạm thời để đây)

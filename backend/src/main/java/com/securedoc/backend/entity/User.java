@@ -48,6 +48,12 @@ public class User {
     @Builder.Default
     private boolean isCredentialsNonExpired = true; // Mật khẩu còn hạn
 
+    // --- LOGIN ATTEMPT TRACKING ---
+    @Builder.Default
+    private int failedLoginAttempts = 0; // Đếm số lần sai
+
+    private LocalDateTime lockTime; // Thời điểm bị khóa
+
     // --- Audit ---
     @CreatedDate
     private LocalDateTime createdAt;

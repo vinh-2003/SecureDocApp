@@ -5,6 +5,22 @@ spring:
   application:
     name: secure-doc-backend
 
+  # --- EMAIL CONFIGURATION (Gmail Example) ---
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: vinh9a72003@gmail.com
+    password: cxsf owsa punt jcqs
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
   # --- 1. MONGODB ---
   data:
     mongodb:
@@ -22,8 +38,8 @@ spring:
   # --- 3. FILE UPLOAD LIMITS ---
   servlet:
     multipart:
-      max-file-size: 1GB        # Kích thước tối đa 1 file
-      max-request-size: 1GB     # Kích thước tối đa cả request
+      max-file-size: 10MB        # Kích thước tối đa 1 file
+      max-request-size: 100MB     # Kích thước tối đa cả request
 
   # --- 4. JACKSON (JSON FORMAT) ---
   jackson:
@@ -40,3 +56,13 @@ app:
 
   security:
     master-key: "MY_SUPER_SECRET_MASTER_KEY_CHANGE_ME" # Dùng để mã hóa FileKey trong DB (Tạm thời để đây)
+
+    # Cấu hình logic khóa tài khoản (Tránh hardcode trong Java)
+    max-failed-attempts: 5                # Sai 5 lần thì khóa
+    lock-time-duration-minutes: 30        # Khóa trong 30 phút
+    token-expiration-minutes: 15          # Token xác thực/reset pass sống trong 15 phút
+
+  frontend-url: http://localhost:3030
+
+  google:
+    client-id: 352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com

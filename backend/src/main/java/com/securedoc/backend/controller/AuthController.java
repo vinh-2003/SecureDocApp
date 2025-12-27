@@ -5,6 +5,7 @@ import com.securedoc.backend.entity.RefreshToken;
 import com.securedoc.backend.entity.User;
 import com.securedoc.backend.exception.AppErrorCode;
 import com.securedoc.backend.exception.AppException;
+import com.securedoc.backend.exception.TokenRefreshException;
 import com.securedoc.backend.payload.response.ApiResponse;
 import com.securedoc.backend.repository.UserRepository;
 import com.securedoc.backend.security.jwt.JwtUtils;
@@ -18,10 +19,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-@CrossOrigin(origins = "*", maxAge = 3600) // Cho phép gọi từ mọi nguồn (Dev mode)
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "*", maxAge = 3600) // Cho phép gọi từ mọi nguồn (Dev mode)
 public class AuthController {
 
     private final AuthService authService;
@@ -67,7 +68,8 @@ public class AuthController {
                             "Làm mới token thành công"
                     ));
                 })
-                .orElseThrow(() -> new RuntimeException("Refresh token is not in database!"));
+                .orElseThrow(() -> new TokenRefreshException(requestRefreshToken,
+                        "Refresh token is not in database!"));
     }
 
     // --- 4. ĐĂNG XUẤT ---
@@ -87,5 +89,36 @@ public class AuthController {
         }
 
         return ResponseEntity.ok(ApiResponse.success("Không tìm thấy phiên đăng nhập để đăng xuất"));
+    }
+
+    // 1. Endpoint Xác thực Email
+    // GET /api/auth/verify?token=...
+    @GetMapping("/verify")
+    public ResponseEntity<ApiResponse<String>> verifyAccount(@RequestParam String token) {
+        authService.verifyAccount(token);
+        return ResponseEntity.ok(ApiResponse.success("Kích hoạt tài khoản thành công!"));
+    }
+
+    // 2. Endpoint Yêu cầu Quên mật khẩu
+    // POST /api/auth/forgot-password?email=...
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<String>> forgotPassword(@RequestParam String email) {
+        authService.forgotPassword(email);
+        return ResponseEntity.ok(ApiResponse.success("Vui lòng kiểm tra email để đặt lại mật khẩu."));
+    }
+
+    // 3. Endpoint Đặt lại mật khẩu mới
+    // POST /api/auth/reset-password
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<String>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(ApiResponse.success("Đổi mật khẩu thành công!"));
+    }
+
+    // --- 5. ĐĂNG NHẬP BẰNG GOOGLE ---
+    @PostMapping("/google")
+    public ResponseEntity<ApiResponse<TokenResponse>> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {
+        TokenResponse tokenResponse = authService.authenticateGoogleUser(request);
+        return ResponseEntity.ok(ApiResponse.success(tokenResponse, "Đăng nhập Google thành công"));
     }
 }

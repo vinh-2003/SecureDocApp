@@ -24,6 +24,10 @@ public class TokenResponse {
 
     private String email;
 
+    private String fullName;
+
+    private String avatarUrl;
+
     // (Optional) Danh sách quyền để Frontend ẩn/hiện menu
     private java.util.List<String> roles;
 }

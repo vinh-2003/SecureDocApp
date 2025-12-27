@@ -15,8 +15,9 @@ public class DocumentIndex {
     @Id
     private String id;
 
+    // SỬA: Đổi title -> name để khớp với FileNode và DTO
     @Field(type = FieldType.Text, analyzer = "vi_analyzer", searchAnalyzer = "vi_analyzer")
-    private String title;
+    private String name;
 
     @Field(type = FieldType.Text, analyzer = "standard")
     private String description;
@@ -28,30 +29,34 @@ public class DocumentIndex {
     private String type; // FILE/FOLDER
 
     @Field(type = FieldType.Keyword)
-    private String extension; // pdf, docx...
+    private String extension;
+
+    // THÊM MỚI: Kích thước file
+    @Field(type = FieldType.Long)
+    private Long size;
+
+    // THÊM MỚI: MimeType (để hiển thị icon chính xác)
+    @Field(type = FieldType.Keyword)
+    private String mimeType;
 
     @Field(type = FieldType.Keyword)
     private String status;
 
     @Field(type = FieldType.Boolean)
-    private boolean isDeleted; // Phục vụ lọc Thùng rác
+    private boolean isDeleted;
 
-    // --- BẢO MẬT ---
     @Field(type = FieldType.Keyword)
     private String ownerId;
 
     @Field(type = FieldType.Keyword)
     private List<String> allowedUsers;
 
-    // --- THỜI GIAN ---
-    // Lưu dưới dạng String ISO-8601 (yyyy-MM-ddTHH:mm:ss) để dễ range query
     @Field(type = FieldType.Date)
     private String createdAt;
 
     @Field(type = FieldType.Date)
-    private String updatedAt; // <-- THÊM MỚI
+    private String updatedAt;
 
-    // --- VỊ TRÍ ---
     @Field(type = FieldType.Keyword)
-    private List<String> ancestors; // Để lọc theo folder cha (Location)
+    private List<String> ancestors;
 }

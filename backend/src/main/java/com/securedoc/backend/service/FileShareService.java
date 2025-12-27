@@ -67,7 +67,9 @@ public class FileShareService {
         User targetUser = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
 
-        if (targetUser.getId().equals(node.getOwnerId())) return;
+        if (targetUser.getId().equals(node.getOwnerId())) {
+            throw new AppException(AppErrorCode.SHARE_FOR_OWNER);
+        }
 
         // BẮT ĐẦU QUY TRÌNH DOMINO
         applySharePermissionRecursive(node, targetUser.getId(), request.getRole(), true);

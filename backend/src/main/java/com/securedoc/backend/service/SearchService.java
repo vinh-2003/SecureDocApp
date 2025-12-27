@@ -3,6 +3,7 @@ package com.securedoc.backend.service;
 import com.securedoc.backend.dto.file.FileResponse;
 import com.securedoc.backend.dto.file.SearchFileRequest;
 import com.securedoc.backend.entity.elasticsearch.DocumentIndex;
+import com.securedoc.backend.enums.EFileType;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.PageRequest;
@@ -13,6 +14,7 @@ import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,7 +43,7 @@ public class SearchService {
                     // 1. KEYWORD
                     if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
                         b.must(m -> m.bool(b2 -> b2
-                                .should(s -> s.match(mat -> mat.field("title").query(request.getKeyword()).boost(2.0f)))
+                                .should(s -> s.match(mat -> mat.field("name").query(request.getKeyword()).boost(2.0f)))
                                 .should(s -> s.match(mat -> mat.field("content").query(request.getKeyword())))
                         ));
                     }
@@ -116,7 +118,34 @@ public class SearchService {
 
         return searchHits.stream()
                 .map(SearchHit::getContent)
-                .map(doc -> modelMapper.map(doc, FileResponse.class))
+                .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    // Hàm chuyển đổi từ DocumentIndex (Elastic) -> FileResponse (DTO)
+    private FileResponse mapToResponse(DocumentIndex doc) {
+        // Parse String Date từ Elastic về LocalDateTime
+        LocalDateTime created = doc.getCreatedAt() != null ? LocalDateTime.parse(doc.getCreatedAt()) : null;
+        LocalDateTime updated = doc.getUpdatedAt() != null ? LocalDateTime.parse(doc.getUpdatedAt()) : null;
+
+        // Convert String type về Enum EFileType
+        EFileType typeEnum = EFileType.FILE;
+        try {
+            typeEnum = EFileType.valueOf(doc.getType());
+        } catch (Exception e) {}
+
+        return FileResponse.builder()
+                .id(doc.getId())
+                .name(doc.getName()) // Đã có tên
+                .description(doc.getDescription())
+                .type(typeEnum)
+                .size(doc.getSize()) // Đã có size
+                .mimeType(doc.getMimeType())
+                .extension(doc.getExtension())
+                .ownerId(doc.getOwnerId())
+                .createdAt(created)
+                .updatedAt(updated)
+                // Các trường khác map nếu cần
+                .build();
     }
 }

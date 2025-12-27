@@ -2,6 +2,7 @@ package com.securedoc.backend.security.services;
 
 import com.securedoc.backend.entity.RefreshToken;
 import com.securedoc.backend.entity.User;
+import com.securedoc.backend.exception.TokenRefreshException;
 import com.securedoc.backend.repository.RefreshTokenRepository;
 import com.securedoc.backend.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,7 +51,7 @@ public class RefreshTokenService {
     public RefreshToken verifyExpiration(RefreshToken token) {
         if (token.getExpiryDate().isBefore(LocalDateTime.now())) {
             refreshTokenRepository.delete(token);
-            throw new RuntimeException("Refresh token was expired. Please make a new signin request");
+            throw new TokenRefreshException(token.getToken(), "Refresh token was expired. Please make a new signin request");
         }
         return token;
     }

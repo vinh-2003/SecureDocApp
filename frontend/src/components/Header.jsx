@@ -8,6 +8,7 @@ import { AuthContext } from '../context/AuthContext';
 import fileService from '../services/fileService';
 import AdvancedSearchForm from './AdvancedSearchForm';
 import ChangePasswordModal from './ChangePasswordModal';
+import { formatDateShort } from '../utils/format';
 
 const Header = () => {
   const { user, logout } = useContext(AuthContext);
@@ -124,6 +125,18 @@ const Header = () => {
       return current;
   };
 
+  const handleResultClick = (item) => {
+    setShowDropdown(false); // Đóng dropdown trước
+
+    if (item.type === 'FOLDER') {
+        // Nếu là Folder -> Điều hướng vào trong
+        navigate(`/folders/${item.id}`);
+    } else {
+        // Nếu là File
+        navigate(`/file/view/${item.id}`);
+    }
+};
+
   // Icons Helper
   const getSmallIcon = (type, extension) => {
       if (type === 'FOLDER') return <FaFolder className="text-yellow-500" />;
@@ -168,27 +181,66 @@ const Header = () => {
             {showDropdown && keyword.trim() && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-fade-in-down">
                     {isSearching ? (
-                         <div className="p-4 text-center text-sm text-gray-500 flex justify-center gap-2"><div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>Đang tìm...</div>
+                        <div className="p-4 text-center text-sm text-gray-500 flex justify-center gap-2">
+                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            Đang tìm...
+                        </div>
                     ) : (
                         <>
                             {previewResults.length > 0 ? (
                                 <ul>
                                     {previewResults.map(item => (
                                         <li key={item.id} className="border-b last:border-none">
-                                            <Link to={item.type === 'FOLDER' ? `/folders/${item.id}` : '#'} onClick={() => setShowDropdown(false)} className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition cursor-pointer group">
-                                                <div className="text-lg">{getSmallIcon(item.type, item.extension)}</div>
-                                                <div className="overflow-hidden">
-                                                    <p className="text-sm font-medium text-gray-800 truncate group-hover:text-blue-700">{item.name || item.title}</p>
-                                                    <p className="text-xs text-gray-500 truncate">{item.type === 'FOLDER' ? 'Thư mục' : item.extension}</p>
+                                            {/* SỬA ĐỔI LAYOUT TẠI ĐÂY */}
+                                            <div 
+                                                onClick={() => handleResultClick(item)}
+                                                className="flex items-center justify-between px-4 py-3 hover:bg-blue-50 transition cursor-pointer group"
+                                            >
+                                                {/* --- BÊN TRÁI: Icon + Tên + Owner --- */}
+                                                <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                                    {/* Icon */}
+                                                    <div className="text-xl shrink-0 text-gray-500">
+                                                        {getSmallIcon(item.type, item.extension)}
+                                                    </div>
+
+                                                    {/* Info Wrapper */}
+                                                    <div className="overflow-hidden flex flex-col">
+                                                        {/* Tên File/Folder */}
+                                                        <p className="text-sm font-medium text-gray-800 truncate group-hover:text-blue-700" title={item.name}>
+                                                            {item.name}
+                                                        </p>
+                                                        
+                                                        {/* Người sở hữu */}
+                                                        <div className="flex items-center gap-1 text-xs text-gray-500 truncate">
+                                                            <span className="opacity-75">Bởi:</span>
+                                                            <span className="font-medium text-gray-600">
+                                                                {item.ownerName || item.owner?.name || "Ẩn danh"}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </Link>
+
+                                                {/* --- BÊN PHẢI: Ngày cập nhật --- */}
+                                                <div className="ml-4 whitespace-nowrap text-right">
+                                                    <p className="text-xs text-gray-400 group-hover:text-blue-500 transition-colors">
+                                                        {formatDateShort(item.updatedAt)}
+                                                    </p>
+                                                </div>
+                                            </div>
                                         </li>
                                     ))}
                                 </ul>
                             ) : (
-                                <div className="p-4 text-center text-sm text-gray-500">Không tìm thấy kết quả.</div>
+                                <div className="p-4 text-center text-sm text-gray-500">
+                                    Không tìm thấy kết quả.
+                                </div>
                             )}
-                            <div onClick={() => goToSearchPage({ keyword })} className="bg-gray-50 px-4 py-3 text-center text-sm text-blue-600 font-semibold cursor-pointer hover:bg-gray-100 border-t transition hover:underline">
+                            
+                            {/* Footer Dropdown */}
+                            <div 
+                                onClick={() => goToSearchPage({ keyword })} 
+                                className="bg-gray-50 px-4 py-3 text-center text-sm text-blue-600 font-semibold cursor-pointer hover:bg-gray-100 border-t transition hover:underline"
+                            >
                                 Xem tất cả kết quả cho "{keyword}"
                             </div>
                         </>

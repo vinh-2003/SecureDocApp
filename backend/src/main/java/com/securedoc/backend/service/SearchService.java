@@ -2,21 +2,23 @@ package com.securedoc.backend.service;
 
 import com.securedoc.backend.dto.file.FileResponse;
 import com.securedoc.backend.dto.file.SearchFileRequest;
+import com.securedoc.backend.entity.FileNode;
 import com.securedoc.backend.entity.elasticsearch.DocumentIndex;
-import com.securedoc.backend.enums.EFileType;
+import com.securedoc.backend.repository.FileNodeRepository;
 import lombok.RequiredArgsConstructor;
-import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 // --- IMPORT CHUẨN (Quan trọng) ---
@@ -30,8 +32,10 @@ import co.elastic.clients.elasticsearch._types.query_dsl.DateRangeQuery; // Impo
 public class SearchService {
 
     private final ElasticsearchOperations elasticsearchOperations;
-    private final ModelMapper modelMapper;
     private final RecentFileService recentFileService;
+
+    private final FileNodeRepository fileNodeRepository;
+    private final FileStorageService fileStorageService;
 
     public List<FileResponse> searchFiles(SearchFileRequest request, String userId) {
 
@@ -116,36 +120,31 @@ public class SearchService {
 
         SearchHits<DocumentIndex> searchHits = elasticsearchOperations.search(query, DocumentIndex.class);
 
-        return searchHits.stream()
-                .map(SearchHit::getContent)
-                .map(this::mapToResponse)
+        if (!searchHits.hasSearchHits()) {
+            return Collections.emptyList();
+        }
+
+        // --- 3. LẤY DANH SÁCH ID (Theo đúng thứ tự Score của Elastic) ---
+        List<String> elasticIds = searchHits.stream()
+                .map(hit -> hit.getContent().getId())
                 .collect(Collectors.toList());
-    }
 
-    // Hàm chuyển đổi từ DocumentIndex (Elastic) -> FileResponse (DTO)
-    private FileResponse mapToResponse(DocumentIndex doc) {
-        // Parse String Date từ Elastic về LocalDateTime
-        LocalDateTime created = doc.getCreatedAt() != null ? LocalDateTime.parse(doc.getCreatedAt()) : null;
-        LocalDateTime updated = doc.getUpdatedAt() != null ? LocalDateTime.parse(doc.getUpdatedAt()) : null;
+        // --- 4. FETCH DỮ LIỆU TỪ DB CHÍNH (MONGODB) ---
+        // Lưu ý: findAllById không bảo đảm thứ tự trả về
+        List<FileNode> dbNodes = fileNodeRepository.findAllById(elasticIds);
 
-        // Convert String type về Enum EFileType
-        EFileType typeEnum = EFileType.FILE;
-        try {
-            typeEnum = EFileType.valueOf(doc.getType());
-        } catch (Exception e) {}
+        // Tạo Map để tra cứu nhanh: ID -> Node
+        Map<String, FileNode> nodeMap = dbNodes.stream()
+                .collect(Collectors.toMap(FileNode::getId, Function.identity()));
 
-        return FileResponse.builder()
-                .id(doc.getId())
-                .name(doc.getName()) // Đã có tên
-                .description(doc.getDescription())
-                .type(typeEnum)
-                .size(doc.getSize()) // Đã có size
-                .mimeType(doc.getMimeType())
-                .extension(doc.getExtension())
-                .ownerId(doc.getOwnerId())
-                .createdAt(created)
-                .updatedAt(updated)
-                // Các trường khác map nếu cần
-                .build();
+        // --- 5. MAP LẠI THEO THỨ TỰ ELASTIC & TÍNH TOÁN QUYỀN ---
+        return elasticIds.stream()
+                .map(nodeMap::get) // Lấy Node từ Map theo ID đã sort
+                .filter(Objects::nonNull) // Lọc bỏ null (trường hợp Elastic có index nhưng DB đã xóa chưa kịp sync)
+                .map(node -> {
+                    // Gọi hàm convert có tính toán Permission (Feudal System) từ FileStorageService
+                    return fileStorageService.convertToResponse(node, userId);
+                })
+                .collect(Collectors.toList());
     }
 }

@@ -74,6 +74,10 @@ public class FileNode {
     @LastModifiedBy
     private String lastModifiedBy; // ID người sửa cuối (Tự động lấy từ JWT)
 
+    // --- MỚI: Hỗ trợ Trash ---
+    private LocalDateTime trashedAt;    // Thời điểm xoá
+    private String originalParentId;    // ID cha trước khi bị xoá (để restore hoặc logic tách rời)
+
     // ================= INNER CLASSES =================
 
     @Data
@@ -93,5 +97,6 @@ public class FileNode {
     public static class FilePermission {
         private String userId;
         private EPermissionRole role; // VIEWER, EDITOR
+        private LocalDateTime sharedAt;
     }
 }

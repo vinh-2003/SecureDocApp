@@ -64,5 +64,8 @@ app:
 
   frontend-url: http://localhost:3030
 
+  trash:
+    retention-days: 30
+
   google:
     client-id: 352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com

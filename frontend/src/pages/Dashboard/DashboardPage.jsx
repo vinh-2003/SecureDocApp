@@ -8,16 +8,23 @@ import {
   FaHdd, FaLayerGroup, FaList, FaThLarge, FaChevronRight, FaHome,
   FaFolderPlus, FaFileUpload, FaFolderOpen,
   FaEllipsisV, FaDownload, FaPen, FaInfoCircle, FaShareAlt, 
-  FaLink, FaArrowsAlt, FaTrash, FaClone,
+  FaLink, FaArrowsAlt, FaTrash, FaClone, FaTrashRestore, 
   FaTimes, FaUserCircle, FaGlobeAsia, FaLock,
-  FaUserPlus, FaCaretDown, FaExclamationTriangle
+  FaUserPlus, FaCaretDown, FaExclamationTriangle,
+  FaCheckSquare, FaSquare, FaExchangeAlt, FaSpinner, FaExclamationCircle,
+  FaRedo
 } from 'react-icons/fa';
 
 // Components & Services
 import fileService from '../../services/fileService';
 import { FileContext } from '../../context/FileContext';
+import { AuthContext } from '../../context/AuthContext';
 import { formatBytes, formatDate } from '../../utils/format';
 import Loading from '../../components/Loading';
+import MoveFileModal from '../../components/Dashboard/MoveFileModal';
+import DeleteConfirmModal from '../../components/Dashboard/DeleteConfirmModal';
+import { useMenuPosition } from '../../hooks/useMenuPosition';
+import { useFileWebSocket } from '../../hooks/useFileWebSocket';
 
 const DashboardPage = () => {
   // 1. LẤY PARAMS TỪ URL & ROUTER
@@ -32,16 +39,21 @@ const DashboardPage = () => {
     handleUploadFile,
     handleUploadFolder,
     handleRename,
-    handleUpdateDescription
+    handleUpdateDescription,
+    updatePermissions,
+    currentPermissions
   } = useContext(FileContext);
+
+  const { user } = useContext(AuthContext)
+  const currentUserId = user?.userId;
 
   // 3. LOCAL STATE
   const [files, setFiles] = useState([]);
   const [stats, setStats] = useState({ totalFiles: 0, totalSize: 0 });
   const [loading, setLoading] = useState(false);
   
-  const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, name: 'Thư mục gốc' }]);
-  const [sortConfig, setSortConfig] = useState({ sortBy: 'createdAt', direction: 'desc' });
+  const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, name: 'Tài liệu của tôi' }]);
+  const [sortConfig, setSortConfig] = useState({ sortBy: 'updatedAt', direction: 'desc' });
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
 
   // State cho Context Menu (Chuột phải)
@@ -77,14 +89,24 @@ const DashboardPage = () => {
   const [userToRevoke, setUserToRevoke] = useState(null); // Lưu email người cần xóa
   const [revokeLoading, setRevokeLoading] = useState(false); // Loading cho nút xóa
 
+  // --- [MỚI] STATE CHO CHỨC NĂNG CHỌN & DI CHUYỂN ---
+  const [selectedFiles, setSelectedFiles] = useState([]); // Danh sách các file đang chọn
+  const [showMoveModal, setShowMoveModal] = useState(false); // Hiển thị Modal Move
+  const [lastSelectedIndex, setLastSelectedIndex] = useState(null); // Để hỗ trợ Shift+Click (nếu cần sau này)
+
+  // --- STATE CHO MODAL XOÁ ---
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [filesToDelete, setFilesToDelete] = useState([]); // Lưu danh sách file chờ xoá
+    const [deleting, setDeleting] = useState(false); // Loading state
+
+    // [MỚI] State cho menu của Breadcrumb (Thư mục hiện tại)
+  const [breadcrumbMenu, setBreadcrumbMenu] = useState({ visible: false, x: 0, y: 0, file: null });
+
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const renameInputRef = useRef(null);
   const descInputRef = useRef(null);
-
-  // --- CONSTANTS: Ước lượng kích thước Menu ---
-  const MENU_WIDTH = 260;  // Tương đương w-64 (256px) + padding
-  const MENU_HEIGHT = 380; // Ước lượng chiều cao tối đa (File có nhiều option nhất)
+  const clickTimeoutRef = useRef(null);
 
   // --- USE EFFECT: CHẠY KHI URL HOẶC REFRESH KEY THAY ĐỔI ---
   useEffect(() => {
@@ -116,17 +138,56 @@ const DashboardPage = () => {
         if (statsRes.success) setStats(statsRes.data);
         
         // Reset Breadcrumb
-        setBreadcrumbs([{ id: null, name: 'Thư mục gốc' }]);
+        setBreadcrumbs([{ id: null, name: 'Tài liệu của tôi', isRoot: true, type: 'MY_ROOT' }]);
+
+        updatePermissions({
+                    canCreateFolder: true,
+                    canUploadFile: true,
+                    canUploadFolder: true
+                });
       } else {
         // --- ĐANG Ở FOLDER CON ---
+        // Nếu ở FOLDER CON -> Gọi API lấy chi tiết Folder để biết mình có quyền gì
+                // (Lưu ý: API getFileDetails đã trả về permissions của user đối với folder này)
+                const folderDetailRes = await fileService.getFileDetails(currentId);
+                
+                if (folderDetailRes.success) {
+                    const perms = folderDetailRes.data.permissions;
+                    updatePermissions({
+                        canCreateFolder: perms.canCreateFolder,
+                        canUploadFile: perms.canUploadFile,
+                        canUploadFolder: perms.canUploadFolder
+                    });
+                }
+
         // Gọi API lấy chuỗi Breadcrumb từ Server (để fix lỗi F5 mất đường dẫn)
         const breadRes = await fileService.getBreadcrumbs(currentId);
+        
         if (breadRes.success) {
-            // Backend trả về list [Cha, Con, Cháu]. Nối vào sau "Thư mục gốc"
-            setBreadcrumbs([
-                { id: null, name: 'Thư mục gốc' },
-                ...breadRes.data
-            ]);
+           const crumbs = breadRes.data; // List do Backend trả về
+           
+           if (crumbs.length > 0) {
+               // Lấy phần tử cao nhất (đầu tiên trong mảng)
+               const topFolder = crumbs[0];
+               
+               // Lấy ID user hiện tại (thường lưu trong localStorage khi login)
+               const currentUser = JSON.parse(localStorage.getItem('user')); 
+               const currentUserId = currentUser?.userId; // Hoặc currentUser?._id tùy API login
+
+               let rootCrumb;
+
+               // LOGIC QUYẾT ĐỊNH ROOT ẢO
+               if (topFolder.ownerId === currentUserId) {
+                   // CASE A: File của mình -> Root là "Tài liệu của tôi"
+                   rootCrumb = { id: null, name: 'Tài liệu của tôi', isRoot: true, type: 'MY_ROOT' };
+               } else {
+                   // CASE B: File của người khác -> Root là "Được chia sẻ"
+                   rootCrumb = { path: '/shared', name: 'Được chia sẻ', isRoot: true, type: 'SHARED_ROOT' };
+               }
+
+               // Ghép Root ảo vào trước danh sách từ API
+               setBreadcrumbs([rootCrumb, ...crumbs]);
+           }
         }
       }
     } catch (error) {
@@ -137,25 +198,73 @@ const DashboardPage = () => {
     }
   };
 
+  // --- [MỚI] CALLBACK KHI NHẬN SOCKET ---
+    const handleSocketMessage = (msg) => {
+        // Tìm và update file trong danh sách
+        setFiles(prevFiles => prevFiles.map(f => {
+            if (f.id === msg.fileId) {
+                // Cập nhật trạng thái mới (AVAILABLE/FAILED)
+                return { ...f, status: msg.status };
+            }
+            return f;
+        }));
+    };
+
+    // --- [MỚI] KÍCH HOẠT SOCKET ---
+    useFileWebSocket(user.userId, handleSocketMessage);
+
   // --- HANDLER: ĐIỀU HƯỚNG (NAVIGATION) ---
+
+  // Hàm xử lý click có độ trễ (để phân biệt với double click)
+  const handleSmartClick = (e, file, index) => {
+    // Nếu click vào checkbox hoặc nút 3 chấm thì xử lý ngay, không cần delay
+    if (e.target.closest('button') || e.target.closest('.checkbox-area')) {
+        handleRowClick(e, file, index);
+        return;
+    }
+
+    // Nếu đã có timer đang chạy (tức là vừa click xong), đây là double click -> Hủy timer cũ
+    if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+        return; // Dừng lại, để sự kiện onDoubleClick tự lo
+    }
+
+    // Tạo timer mới: Đợi 250ms, nếu không click tiếp thì mới chọn file
+    clickTimeoutRef.current = setTimeout(() => {
+        handleRowClick(e, file, index); // Gọi hàm chọn file cũ của bạn
+        clickTimeoutRef.current = null;
+    }, 250);
+  };
   
   // Nhấn đúp vào file/folder
   const handleDoubleClick = (file) => {
+    // Xóa timer nếu nó vẫn đang chờ (để không bị chọn nhầm)
+    if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+    }
+
     if (file.type === 'FOLDER') {
-      // Chuyển hướng URL -> useEffect sẽ tự chạy lại để load data mới
+      // [QUAN TRỌNG] Reset danh sách chọn khi chuyển folder để không bị lưu rác
+      setSelectedFiles([]); 
       navigate(`/folders/${file.id}`);
     } else {
-      handlePreview(file);
-      // Logic xem/tải file ở đây (gọi API download inline)
+      handleFileClick(file);
     }
   };
 
   // Nhấn vào thanh Breadcrumb
   const handleBreadcrumbClick = (item) => {
-    if (!item.id) {
-      navigate('/'); // Về gốc
+    if (item.isRoot) {
+        if (item.type === 'SHARED_ROOT') {
+            navigate('/shared'); // Quay về trang danh sách share
+        } else {
+            navigate('/'); // Quay về trang chủ
+        }
     } else {
-      navigate(`/folders/${item.id}`); // Về folder cha
+        // Folder bình thường
+        navigate(`/folders/${item.id}`);
     }
   };
 
@@ -164,7 +273,7 @@ const DashboardPage = () => {
     const toastId = toast.loading(`Đang chuẩn bị tải: ${file.name}...`);
     try {
       // Gọi API với inline = false
-      const response = await fileService.downloadFile(file.id, false);
+      const response = await fileService.downloadFile(file.id);
       
       // Tạo URL ảo từ Blob dữ liệu
       const url = window.URL.createObjectURL(new Blob([response]));
@@ -183,48 +292,45 @@ const DashboardPage = () => {
       toast.dismiss(toastId);
       toast.success("Đã tải xuống thành công!");
     } catch (error) {
-      console.error(error);
       toast.dismiss(toastId);
-      toast.error("Lỗi khi tải file. Có thể file đã bị xóa hoặc không có quyền.");
+      
+          let message = "Lỗi khi tải file. Có thể file đã bị xóa hoặc không có quyền.";
+      
+          // 🔹 Kiểm tra nếu backend trả về JSON lỗi nhưng ở dạng Blob
+          if (error.response?.data instanceof Blob) {
+              try {
+              const text = await error.response.data.text(); // đọc nội dung blob
+              const json = JSON.parse(text);
+              if (json.message) message = json.message;
+              } catch (parseError) {
+              console.error("Không thể parse lỗi blob:", parseError);
+              }
+          } else if (error.response?.data?.message) {
+              message = error.response.data.message;
+          }
+      
+          console.error("📦 Backend data:", error.response?.data);
+          console.error("📄 Status:", error.response?.status);
+          toast.error(message);
     }
   };
 
-  // --- 2. HÀM XỬ LÝ XEM FILE (PREVIEW) ---
-  const handlePreview = async (file) => {
-    // Chỉ hỗ trợ xem nhanh các file trình duyệt đọc được
-    const supportedTypes = ['image', 'pdf', 'text', 'audio', 'video'];
-    const isSupported = supportedTypes.some(type => file.mimeType?.includes(type));
+  const handleFileClick = (file) => {
+      
+      // Kiểm tra xem file có hỗ trợ chế độ Đọc sách không
+      // (Backend đã hỗ trợ tách trang cho PDF và DOCX/DOC)
+      const isViewable = 
+          file.mimeType === 'application/pdf' || 
+          file.name.toLowerCase().endsWith('.docx') ||
+          file.name.toLowerCase().endsWith('.doc');
 
-    if (!isSupported) {
-       // Nếu không hỗ trợ xem thì chuyển sang tải xuống
-       toast.info("Định dạng này không hỗ trợ xem trước. Đang tải xuống...");
-       handleDownload(file);
-       return;
-    }
-
-    const toastId = toast.loading("Đang mở tài liệu...");
-    try {
-       // Gọi API với inline = true
-       const response = await fileService.downloadFile(file.id, true);
-
-       // Tạo Blob URL
-       // Lưu ý: response của axios trả về Blob trực tiếp nhờ config responseType: 'blob'
-       // Nhưng đôi khi nó nằm trong response.data tuỳ cấu hình axiosClient. 
-       // Nếu axiosClient của bạn trả về response.data, hãy dùng: new Blob([response])
-       const fileBlob = new Blob([response], { type: file.mimeType });
-       const fileUrl = URL.createObjectURL(fileBlob);
-
-       // Mở trong Tab mới để xem
-       window.open(fileUrl, '_blank');
-       
-       // Lưu ý: Với cách mở tab mới này, URL sẽ bị thu hồi khi tắt tab hoặc reload trang 
-       // (Browser tự dọn dẹp Blob URL gắn với window)
-       
-       toast.dismiss(toastId);
-    } catch (error) {
-       toast.dismiss(toastId);
-       toast.error("Không thể xem file này.");
-    }
+      if (isViewable) {
+          // NẾU XEM ĐƯỢC -> CHUYỂN TRANG
+          navigate(`/file/view/${file.id}`);
+      } else {
+          // NẾU KHÔNG -> GỌI HÀM DOWNLOAD CŨ
+          handleDownload(file); 
+      }
   };
 
   // --- HANDLERS: BACKGROUND CONTEXT MENU (Chuột phải vùng trống) ---
@@ -242,58 +348,22 @@ const DashboardPage = () => {
     e.stopPropagation(); 
     const rect = e.currentTarget.getBoundingClientRect();
     
-    // 1. Tính toán X (Ngang)
-    // Mặc định hiển thị lệch sang trái nút bấm một chút
-    let x = rect.left - 150; 
-    
-    // Nếu menu bị tràn ra mép phải màn hình -> Căn lề phải của menu bằng lề phải của nút 3 chấm
-    if (rect.left + MENU_WIDTH > window.innerWidth) {
-        x = rect.right - MENU_WIDTH;
-    }
-
-    // 2. Tính toán Y (Dọc)
-    let y = rect.bottom; // Mặc định hiện xuống dưới nút bấm
-
-    // Nếu menu bị tràn xuống dưới đáy màn hình -> Cho hiện lên trên nút bấm
-    if (y + MENU_HEIGHT > window.innerHeight) {
-        y = rect.top - MENU_HEIGHT;
-    }
-
+    // Chỉ cần set vị trí nút bấm, Hook sẽ tự lo phần còn lại
     setItemMenu({
         visible: true,
-        x: x,
-        y: y,
+        x: rect.left, // Hoặc rect.right tuỳ ý thích ban đầu
+        y: rect.bottom,
         file: file
     });
     setContextMenu({ ...contextMenu, visible: false });
   };
 
   // 2. Chuột phải vào Item (File/Folder)
-  const handleItemContextMenu = (e, file) => {
+const handleItemContextMenu = (e, file) => {
     e.preventDefault();
     e.stopPropagation();
-
-    let x = e.pageX;
-    let y = e.pageY;
-
-    // 1. Kiểm tra tràn ngang (Right edge)
-    // Nếu vị trí chuột + chiều rộng menu > chiều rộng màn hình -> Hiển thị menu sang bên trái con chuột
-    if (x + MENU_WIDTH > window.innerWidth) {
-        x = x - MENU_WIDTH;
-    }
-
-    // 2. Kiểm tra tràn dọc (Bottom edge)
-    // Nếu vị trí chuột + chiều cao menu > chiều cao màn hình -> Hiển thị menu lên trên con chuột
-    if (y + MENU_HEIGHT > window.innerHeight) {
-        y = y - MENU_HEIGHT;
-    }
-
-    setItemMenu({
-        visible: true,
-        x: x,
-        y: y,
-        file: file
-    });
+    // Chỉ cần truyền đúng tọa độ chuột
+    setItemMenu({ visible: true, x: e.pageX, y: e.pageY, file: file });
     setContextMenu({ ...contextMenu, visible: false });
   };
 
@@ -315,9 +385,21 @@ const DashboardPage = () => {
     }
   };
 
+  // --- [MỚI] HELPER: TẠO ĐƯỜNG DẪN CHIA SẺ ---
+  const generateShareLink = (item) => {
+      const origin = window.location.origin; // Lấy domain hiện tại (VD: http://localhost:3000)
+      
+      if (item.type === 'FOLDER') {
+          return `${origin}/folders/${item.id}`;
+      } else {
+          return `${origin}/file/view/${item.id}`;
+      }
+  };
+
   // 3. Xử lý hành động khi chọn menu
   const handleMenuAction = (action, file) => {
     setItemMenu({ ...itemMenu, visible: false }); // Đóng menu sau khi chọn
+    setBreadcrumbMenu(prev => ({ ...prev, visible: false }));
     
     switch (action) {
         case 'DOWNLOAD':
@@ -343,21 +425,23 @@ const DashboardPage = () => {
             openShareModal(file); // <--- Gọi hàm này
             break;
         case 'COPY_LINK':
-            navigator.clipboard.writeText(`http://localhost:3000/share/${file.id}`);
-            toast.success("Đã sao chép liên kết!");
+            const link = generateShareLink(file);            
+            navigator.clipboard.writeText(link)
+                .then(() => toast.success("Đã sao chép liên kết!"))
+                .catch(() => toast.error("Lỗi khi sao chép."));
             break;
         case 'MOVE':
-            toast.info(`Di chuyển: ${file.name}`);
+            setSelectedFiles([file]); 
+            setShowMoveModal(true);
             break;
         case 'INFO':
             fetchFileInfo(file); // <--- GỌI HÀM NÀY
             break;
         case 'TRASH':
-            toast.warn(`Đã chuyển vào thùng rác: ${file.name}`);
-            // TODO: Gọi API soft delete
+            handleSoftDelete([file]); 
             break;
         case 'COPY': // Chỉ cho file
-            toast.info(`Tạo bản sao: ${file.name}`);
+            handleCopyFile(file); // <--- Gọi hàm xử lý copy
             break;
         default:
             break;
@@ -369,10 +453,11 @@ const DashboardPage = () => {
     const handleClick = () => {
         setContextMenu({ ...contextMenu, visible: false });
         setItemMenu({ ...itemMenu, visible: false });
+        setBreadcrumbMenu({ ...breadcrumbMenu, visible: false });
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [contextMenu, itemMenu]);
+  }, [contextMenu, itemMenu, breadcrumbMenu]);
 
   useEffect(() => {
     if (showRenameModal && renameInputRef.current) {
@@ -508,11 +593,212 @@ const DashboardPage = () => {
     }
   };
 
+  // [THÊM MỚI] Hàm xử lý Copy
+    const handleCopyFile = async (file) => {
+        const toastId = toast.loading("Đang tạo bản sao...");
+        try {
+            const res = await fileService.copyFile(file.id);
+            if (res.success) {
+                toast.update(toastId, { 
+                    render: `Đã tạo bản sao: ${res.data.name}`, 
+                    type: "success", 
+                    isLoading: false, 
+                    autoClose: 3000 
+                });
+                
+                // Refresh lại danh sách để hiện file mới
+                fetchData();
+            }
+        } catch (error) {
+            toast.update(toastId, { 
+                render: error.response?.data?.message || "Lỗi khi tạo bản sao.", 
+                type: "error", 
+                isLoading: false, 
+                autoClose: 3000 
+            });
+        }
+    }
+
+  // --- [MỚI] HÀM XỬ LÝ CHỌN FILE ---
+  
+  // 1. Chọn 1 file (Click vào checkbox hoặc Ctrl+Click)
+  const handleSelectFile = (e, file) => {
+    e.stopPropagation(); // Ngăn chặn sự kiện click lan ra ngoài
+    
+    // Kiểm tra xem file đã được chọn chưa
+    const isSelected = selectedFiles.some(f => f.id === file.id);
+
+    if (isSelected) {
+      // Bỏ chọn
+      setSelectedFiles(prev => prev.filter(f => f.id !== file.id));
+    } else {
+      // Thêm vào danh sách chọn
+      setSelectedFiles(prev => [...prev, file]);
+    }
+  };
+
+  // 2. Chọn tất cả (Click vào checkbox ở Header)
+  const handleSelectAll = () => {
+    if (selectedFiles.length === files.length) {
+      setSelectedFiles([]); // Bỏ chọn hết
+    } else {
+      setSelectedFiles([...files]); // Chọn hết
+    }
+  };
+
+// --- HÀM XỬ LÝ CLICK VÀO HÀNG (Hỗ trợ Ctrl và Shift) ---
+  const handleRowClick = (e, file, index) => {
+    // 1. Nếu click vào nút 3 chấm hoặc checkbox thì không xử lý logic dòng ở đây
+    if (e.target.closest('button') || e.target.closest('.checkbox-area')) return;
+
+    // 2. XỬ LÝ SHIFT + CLICK (Chọn theo dải)
+    if (e.shiftKey && lastSelectedIndex !== null) {
+        // Tìm vị trí bắt đầu và kết thúc
+        const start = Math.min(lastSelectedIndex, index);
+        const end = Math.max(lastSelectedIndex, index);
+
+        // Cắt mảng files từ start đến end (slice không lấy phần tử cuối nên phải +1)
+        const newSelection = files.slice(start, end + 1);
+        
+        setSelectedFiles(newSelection);
+        
+        // Ngăn chọn văn bản mặc định của trình duyệt khi giữ Shift
+        window.getSelection().removeAllRanges(); 
+        return;
+    }
+
+    // 3. XỬ LÝ CTRL + CLICK (Chọn thêm / Bỏ chọn lẻ tẻ)
+    if (e.ctrlKey || e.metaKey) {
+       handleSelectFile(e, file);
+       setLastSelectedIndex(index); // Cập nhật vị trí click cuối cùng
+       return;
+    }
+
+    // 4. CLICK THƯỜNG (Chọn duy nhất file này)
+    setSelectedFiles([file]);
+    setLastSelectedIndex(index); // Cập nhật vị trí click cuối cùng
+  };
+
+  // --- [MỚI] HÀM CALLBACK SAU KHI DI CHUYỂN THÀNH CÔNG ---
+  const handleMoveSuccess = () => {
+    fetchData(); // Tải lại danh sách file
+    setSelectedFiles([]); // Reset danh sách chọn
+    // Cập nhật lại breadcrumbs hoặc stats nếu cần thiết
+  };
+
+  // --- HANDLER: BREADCRUMB MENU ---
+
+  // 1. Click chuột trái vào mũi tên nhỏ
+  const handleBreadcrumbArrowClick = (e, item) => {
+    e.stopPropagation(); // Ngăn chặn sự kiện click lan ra ngoài (để không navigate/reload)
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    
+    // Mở menu ngay bên dưới mũi tên
+    setBreadcrumbMenu({
+        visible: true,
+        x: rect.left,
+        y: rect.bottom + 5, // Cách ra một chút cho đẹp
+        file: { ...item, type: 'FOLDER' } // Đảm bảo nó được hiểu là Folder
+    });
+  };
+
+  // 2. Click chuột phải vào item cuối cùng (Current Folder)
+  const handleBreadcrumbContextMenu = (e, item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Mở menu tại vị trí chuột
+    setBreadcrumbMenu({
+        visible: true,
+        x: e.pageX,
+        y: e.pageY,
+        file: { ...item, type: 'FOLDER' }
+    });
+  };
+
+  const handleSoftDelete = (items) => {
+        // items là mảng file/folder người dùng chọn
+        if (!items || items.length === 0) return;
+        
+        setFilesToDelete(items);
+        setShowDeleteModal(true);
+    };
+
+    const executeDelete = async () => {
+        if (filesToDelete.length === 0) return;
+
+        setDeleting(true); // Bật loading
+        const toastId = toast.loading("Đang chuyển vào thùng rác...");
+
+        try {
+            const ids = filesToDelete.map(f => f.id);
+            const res = await fileService.moveToTrash(ids);
+
+            if (res.success) {
+                toast.update(toastId, { 
+                    render: `Đã xóa thành công`, 
+                    type: "success", 
+                    isLoading: false, 
+                    autoClose: 2000 
+                });
+
+                // Refresh dữ liệu
+                fetchData();
+                setSelectedFiles([]); // Bỏ chọn
+                setShowDeleteModal(false); // Đóng modal
+                setFilesToDelete([]);
+            }
+        } catch (error) {
+            toast.update(toastId, { 
+                render: "Lỗi khi xóa file.", 
+                type: "error", 
+                isLoading: false, 
+                autoClose: 3000 
+            });
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    // Hàm xử lý Retry
+  const handleRetry = async (e, file) => {
+      e.stopPropagation(); // Chặn click vào row
+      const toastId = toast.loading("Đang thử xử lý lại...");
+      
+      try {
+          // 1. Gọi API
+          const res = await fileService.retryFile(file.id);
+          
+          if (res.success) {
+              // 2. Cập nhật UI ngay lập tức sang PROCESSING (Optimistic Update)
+              setFiles(prev => prev.map(f => 
+                  f.id === file.id ? { ...f, status: 'PROCESSING' } : f
+              ));
+              
+              toast.update(toastId, { 
+                  render: "Đã gửi yêu cầu xử lý lại.", 
+                  type: "success", isLoading: false, autoClose: 2000 
+              });
+          }
+      } catch (error) {
+          toast.update(toastId, { 
+              render: "Không thể thử lại.", 
+              type: "error", isLoading: false, autoClose: 2000 
+          });
+      }
+  };
+
   // 4. Sao chép liên kết
   const copyLink = () => {
-    const link = `http://localhost:3000/file/${shareData.id}`; // URL Demo
-    navigator.clipboard.writeText(link);
-    toast.success("Đã sao chép đường liên kết!");
+    if (!shareData) return;
+
+    // [SỬA] Sử dụng hàm helper tương tự
+    const link = generateShareLink(shareData);
+    
+    navigator.clipboard.writeText(link)
+        .then(() => toast.success("Đã sao chép đường liên kết!"))
+        .catch(() => toast.error("Lỗi khi sao chép."));
   };
 
   // 5. Xử lý cập nhật quyền ngay tại danh sách
@@ -540,29 +826,90 @@ const DashboardPage = () => {
     }
   };
 
-  // Upload file từ Context Menu
-  const onFileSelectCtx = async (e) => {
-    // TỐI ƯU: Lấy toàn bộ FileList
-    const files = e.target.files;
-    
-    if (files && files.length > 0) {
-      await handleUploadFile(files); // Gọi hàm từ Context với danh sách file
-      e.target.value = null;
-    }
+  // --- HELPER: CHECK ĐỊNH DẠNG FILE ---
+  const isAllowedFile = (file) => {
+      const allowedExtensions = ['pdf', 'doc', 'docx'];
+      const allowedMimeTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+
+      // 1. Check theo MIME Type (Chính xác hơn)
+      if (allowedMimeTypes.includes(file.type)) return true;
+
+      // 2. Check theo đuôi file (Dự phòng trường hợp Windows/Browser không nhận diện được MIME)
+      const ext = file.name.split('.').pop().toLowerCase();
+      return allowedExtensions.includes(ext);
   };
 
-  // Upload Folder từ Context Menu ---
-  const onFolderSelectCtx = async (e) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      await handleUploadFolder(files); // Gọi hàm upload folder của Context
-      e.target.value = null;
+  // Upload file từ Context Menu
+  const onFileSelectCtx = async (e) => {
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    // Chuyển FileList sang Array để lọc
+    const allFiles = Array.from(rawFiles);
+    
+    // LỌC FILE HỢP LỆ
+    const validFiles = allFiles.filter(file => isAllowedFile(file));
+
+    // Cảnh báo nếu có file bị loại bỏ
+    if (validFiles.length < allFiles.length) {
+        toast.warning(`Đã bỏ qua ${allFiles.length - validFiles.length} tệp không hỗ trợ (Chỉ chấp nhận PDF, Word).`);
     }
+    
+    if (validFiles.length > 0) {
+      // Lưu ý: Đảm bảo handleUploadFile trong Context nhận vào mảng File[]
+      await handleUploadFile(validFiles); 
+    }
+    
+    e.target.value = null; // Reset input để chọn lại file cũ được
+  };
+
+  // Upload Folder từ Context Menu
+  const onFolderSelectCtx = async (e) => {
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    const allFiles = Array.from(rawFiles);
+
+    // LỌC FILE TRONG FOLDER
+    // Chỉ giữ lại PDF/Word, loại bỏ các file khác trong folder
+    const validFiles = allFiles.filter(file => isAllowedFile(file));
+
+    if (validFiles.length === 0) {
+        toast.error("Thư mục không chứa tệp PDF hoặc Word nào.");
+        e.target.value = null;
+        return;
+    }
+
+    if (validFiles.length < allFiles.length) {
+        toast.info(`Đang tải lên ${validFiles.length} tệp hợp lệ trong thư mục.`);
+    }
+
+    // Gọi hàm upload folder của Context với danh sách ĐÃ LỌC
+    await handleUploadFolder(validFiles); 
+    
+    e.target.value = null;
   };
 
   // --- HELPER: GET ICON ---
-  const getFileIcon = (type, mimeType, isLarge = false) => {
+  const getFileIcon = (file, isLarge = false) => { // Sửa tham số nhận cả object file
+    const { type, mimeType, status } = file;
     const className = isLarge ? "text-5xl mb-2" : "text-2xl";
+
+    // 1. Nếu đang xử lý -> Trả về Spinner xoay
+    if (status === 'PROCESSING') {
+        return <FaSpinner className={`text-blue-500 animate-spin ${className}`} />;
+    }
+
+    // 2. Nếu lỗi -> Trả về dấu chấm than
+    if (status === 'FAILED') {
+        return <FaExclamationCircle className={`text-red-500 ${className}`} />;
+    }
+
+    // 3. Trạng thái bình thường (AVAILABLE) -> Logic cũ
     if (type === 'FOLDER') return <FaFolder className={`text-yellow-500 ${className}`} />;
     if (mimeType?.includes('pdf')) return <FaFilePdf className={`text-red-500 ${className}`} />;
     if (mimeType?.includes('word') || mimeType?.includes('document')) return <FaFileWord className={`text-blue-500 ${className}`} />;
@@ -573,79 +920,26 @@ const DashboardPage = () => {
   // 1. Lấy tên hiển thị
   const getPermissionLabel = (type) => {
       switch (type) {
+          case 'INHERITED_OWNER': return 'Chủ sở hữu (Kế thừa)'; // [MỚI]
           case 'EDITOR': return 'Người chỉnh sửa';
           case 'COMMENTER': return 'Người nhận xét';
           case 'VIEWER': default: return 'Người xem';
       }
   };
 
-  // 2. Lấy màu sắc Badge (Mỗi quyền 1 màu cho dễ phân biệt)
+  // 2. Lấy màu sắc Badge
   const getPermissionColor = (type) => {
       switch (type) {
+          case 'INHERITED_OWNER':
+              return 'bg-purple-50 text-purple-700 border-purple-200'; // [MỚI] Màu Tím quyền lực
           case 'EDITOR': 
-              return 'bg-orange-50 text-orange-700 border-orange-200'; // Màu Cam
+              return 'bg-orange-50 text-orange-700 border-orange-200'; 
           case 'COMMENTER': 
-              return 'bg-teal-50 text-teal-700 border-teal-200';     // Màu Xanh ngọc
+              return 'bg-teal-50 text-teal-700 border-teal-200';     
           case 'VIEWER': 
           default: 
-              return 'bg-blue-50 text-blue-700 border-blue-200';     // Màu Xanh dương
+              return 'bg-blue-50 text-blue-700 border-blue-200';     
       }
-  };
-
-  // --- RENDER MENU OPTIONS CHO ITEM ---
-  const renderItemMenuOptions = () => {
-    if (!itemMenu.file) return null;
-    const isFolder = itemMenu.file.type === 'FOLDER';
-
-    // Định nghĩa danh sách menu
-    const commonOptions = [
-        { label: 'Tải xuống', action: 'DOWNLOAD', icon: <FaDownload className="text-blue-500"/> },
-        { label: 'Đổi tên', action: 'RENAME', icon: <FaPen className="text-gray-500"/> },
-        { label: 'Cập nhật mô tả', action: 'UPDATE_DESC', icon: <FaInfoCircle className="text-gray-500"/> },
-        { label: 'Chia sẻ', action: 'SHARE', icon: <FaShareAlt className="text-blue-600"/> },
-        { label: 'Sao chép đường dẫn', action: 'COPY_LINK', icon: <FaLink className="text-gray-600"/> },
-        { label: 'Di chuyển', action: 'MOVE', icon: <FaArrowsAlt className="text-gray-600"/> },
-        { label: 'Thông tin', action: 'INFO', icon: <FaInfoCircle className="text-blue-400"/> },
-    ];
-
-    // Menu riêng cho File
-    const fileSpecific = [
-        { label: 'Tạo bản sao', action: 'COPY', icon: <FaClone className="text-purple-500"/> },
-    ];
-
-    // Menu Thùng rác (Luôn ở cuối)
-    const trashOption = { label: 'Chuyển vào thùng rác', action: 'TRASH', icon: <FaTrash className="text-red-500"/>, isDanger: true };
-
-    let options = isFolder 
-        ? [...commonOptions, trashOption]
-        : [commonOptions[0], commonOptions[1], commonOptions[2], ...fileSpecific, commonOptions[3], commonOptions[4], commonOptions[5], commonOptions[6], trashOption];
-
-    return (
-        <div 
-            className="fixed bg-white border border-gray-200 shadow-xl rounded-lg z-[100] w-60 py-2 animate-fade-in text-sm"
-            style={{ top: itemMenu.y, left: itemMenu.x }}
-            onClick={(e) => e.stopPropagation()} // Chặn click để không đóng menu ngay lập tức
-        >
-             {/* Header nhỏ hiển thị tên file */}
-             <div className="px-4 py-2 border-b bg-gray-50 text-xs font-semibold text-gray-500 truncate">
-                {itemMenu.file.name}
-             </div>
-
-             {options.map((opt, idx) => (
-                <button 
-                    key={idx}
-                    onClick={() => handleMenuAction(opt.action, itemMenu.file)}
-                    className={`w-full text-left px-4 py-2.5 hover:bg-gray-100 flex items-center gap-3 transition
-                        ${opt.isDanger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'}
-                        ${opt.label === 'Chuyển vào thùng rác' ? 'border-t mt-1' : ''}
-                    `}
-                >
-                    <span className="text-base">{opt.icon}</span>
-                    <span>{opt.label}</span>
-                </button>
-             ))}
-        </div>
-    );
   };
 
   // --- RENDER ---
@@ -683,19 +977,60 @@ const DashboardPage = () => {
       )}
 
       {/* 2. THANH BREADCRUMB */}
-      <div className="flex items-center gap-2 mb-4 text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200 overflow-x-auto whitespace-nowrap">
-         {breadcrumbs.map((item, index) => (
-             <React.Fragment key={item.id || 'root'}>
-                 <div 
-                    onClick={() => handleBreadcrumbClick(item)}
-                    className={`flex items-center gap-1 cursor-pointer hover:text-blue-600 hover:underline ${index === breadcrumbs.length - 1 ? 'font-bold text-gray-800 pointer-events-none no-underline' : ''}`}
-                 >
-                     {index === 0 && <FaHome className="mb-0.5" />}
-                     <span>{item.name}</span>
-                 </div>
-                 {index < breadcrumbs.length - 1 && <FaChevronRight className="text-gray-400 text-xs" />}
-             </React.Fragment>
-         ))}
+      <div className="flex items-center gap-1 mb-4 text-sm text-gray-600 bg-white p-2 rounded-lg border border-gray-200 overflow-x-auto whitespace-nowrap shadow-sm">
+         {breadcrumbs.map((item, index) => {
+             const isLast = index === breadcrumbs.length - 1;
+             
+             // [MỚI] Biến kiểm tra xem có được hiện Menu không
+             // Chỉ hiện nếu là item cuối VÀ KHÔNG PHẢI LÀ ROOT
+             const showMenu = isLast && !item.isRoot;
+
+             return (
+              <React.Fragment key={item.id || item.type || index}>
+                  <div 
+                    // [LOGIC CLICK]
+                    // Nếu là item cuối -> Không navigate
+                    // Nếu là item trước -> Navigate bình thường
+                    onClick={() => !isLast && handleBreadcrumbClick(item)}
+                    
+                    // [LOGIC CHUỘT PHẢI] 
+                    // Chỉ kích hoạt nếu là item cuối VÀ không phải Root
+                    onContextMenu={(e) => showMenu ? handleBreadcrumbContextMenu(e, item) : null}
+
+                    // [STYLE]
+                    className={`
+                        flex items-center gap-2 px-2 py-1 rounded-md transition-colors select-none
+                        ${isLast 
+                            ? 'font-bold text-gray-800 bg-blue-50 cursor-default' // Bỏ hover nếu là item cuối
+                            : 'cursor-pointer hover:bg-gray-100 text-gray-600'
+                        }
+                    `}
+                  >
+                      {/* ICON */}
+                      {index === 0 && (
+                         item.type === 'SHARED_ROOT' ? <FaShareAlt className="text-gray-500" /> : <FaHome className="text-gray-500" />
+                      )}
+                      
+                      {/* TÊN */}
+                      <span className="truncate max-w-[200px]">{item.name}</span>
+
+                      {/* [MỚI] MŨI TÊN NHỎ */}
+                      {/* Chỉ hiện nếu là item cuối VÀ KHÔNG PHẢI ROOT */}
+                      {showMenu && (
+                          <div 
+                            onClick={(e) => handleBreadcrumbArrowClick(e, item)}
+                            className="ml-1 p-0.5 rounded-sm hover:bg-blue-200 text-gray-500 hover:text-blue-700 cursor-pointer transition"
+                          >
+                              <FaCaretDown size={12} />
+                          </div>
+                      )}
+                  </div>
+                  
+                  {/* Dấu mũi tên ngăn cách */}
+                  {index < breadcrumbs.length - 1 && <FaChevronRight className="text-gray-300 text-xs mx-1" />}
+              </React.Fragment>
+             );
+         })}
       </div>
 
       {/* 3. TOOLBAR (SORT & VIEW MODE) */}
@@ -714,13 +1049,14 @@ const DashboardPage = () => {
                         const [sortBy, direction] = e.target.value.split('-');
                         setSortConfig({ sortBy, direction });
                     }}
-                    defaultValue="createdAt-desc"
+                    defaultValue="updatedAt-desc"
                 >
-                    <option value="createdAt-desc">Mới nhất</option>
-                    <option value="createdAt-asc">Cũ nhất</option>
+                    <option value="updatedAt-desc">Mới nhất</option>
+                    <option value="updatedAt-asc">Cũ nhất</option>
                     <option value="name-asc">Tên (A-Z)</option>
                     <option value="name-desc">Tên (Z-A)</option>
-                    <option value="size-desc">Kích thước</option>
+                    <option value="size-desc">Kích thước giảm dần</option>
+                    <option value="size-asc">Kích thước tăng dần</option>
                 </select>
              </div>
 
@@ -744,6 +1080,40 @@ const DashboardPage = () => {
          </div>
       </div>
 
+      {/* --- [MỚI] TOOLBAR HÀNH ĐỘNG HÀNG LOẠT --- */}
+      {selectedFiles.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 p-2 rounded-lg mb-4 flex justify-between items-center animate-fade-in">
+          <div className="flex items-center gap-3 px-2">
+             <span className="font-bold text-blue-800 text-sm">{selectedFiles.length} mục đã chọn</span>
+             <button onClick={() => setSelectedFiles([])} className="text-xs text-blue-600 hover:underline">Bỏ chọn</button>
+          </div>
+          
+          <div className="flex items-center gap-2">
+             {/* Nút Di chuyển */}
+             {/* Chỉ hiện nút Di chuyển nếu TẤT CẢ file được chọn đều có quyền Move */}
+            {selectedFiles.every(f => f.permissions?.canMove) && (
+                <button 
+                        onClick={() => setShowMoveModal(true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 rounded text-sm font-medium transition shadow-sm"
+                    >
+                        <FaExchangeAlt className="text-gray-500" /> Di chuyển
+                    </button>
+            )}
+
+             {/* Nút Xoá nhiều (Bạn có thể thêm logic xoá nhiều sau này) */}
+             {/* Chỉ hiện nút Xóa nếu TẤT CẢ file được chọn đều có quyền Delete */}
+            {selectedFiles.every(f => f.permissions?.canDelete) && (
+                <button 
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white text-red-600 border border-gray-300 hover:bg-red-50 rounded text-sm font-medium transition shadow-sm"
+                        onClick={() => handleSoftDelete(selectedFiles)}
+                    >
+                        <FaTrash /> Xóa
+                </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 4. MAIN CONTENT (LIST FILE) */}
       {loading ? <Loading /> : (
           files.length > 0 ? (
@@ -755,41 +1125,86 @@ const DashboardPage = () => {
                             {/* ... thead giữ nguyên ... */}
                             <thead className="bg-gray-50 text-gray-600 text-xs uppercase font-semibold">
                                 <tr>
+                                    {/* [MỚI] THÊM CỘT CHECKBOX HEADER */}
+                                    <th className="px-4 py-3 border-b w-10 text-center">
+                                        <button onClick={handleSelectAll} className="text-gray-400 hover:text-blue-600">
+                                            {selectedFiles.length > 0 && selectedFiles.length === files.length ? <FaCheckSquare className="text-blue-600 text-lg"/> : <FaSquare className="text-lg"/>}
+                                        </button>
+                                    </th>
                                     <th className="px-6 py-3 border-b">Tên</th>
                                     <th className="px-6 py-3 border-b hidden sm:table-cell">Kích thước</th>
-                                    <th className="px-6 py-3 border-b hidden md:table-cell">Ngày tạo</th>
+                                    <th className="px-6 py-3 border-b hidden md:table-cell">Ngày sửa đổi</th>
                                     <th className="px-6 py-3 border-b text-right">#</th>
                                 </tr>
                             </thead>
                             <tbody className="text-gray-700 text-sm">
-                                {files.map((file) => (
-                                    <tr 
-                                        key={file.id} 
-                                        className="hover:bg-blue-50 transition cursor-pointer border-b last:border-b-0 select-none group"
-                                        onDoubleClick={() => handleDoubleClick(file)}
-                                        onContextMenu={(e) => handleItemContextMenu(e, file)} // <--- THÊM SỰ KIỆN CHUỘT PHẢI
-                                    >
-                                        <td className="px-6 py-4 flex items-center gap-3">
-                                            {getFileIcon(file.type, file.mimeType)}
-                                            <span className="font-medium text-gray-900 truncate max-w-xs" title={file.name}>{file.name}</span>
-                                        </td>
-                                        <td className="px-6 py-4 hidden sm:table-cell">
-                                            {file.type === 'FOLDER' ? '--' : formatBytes(file.size)}
-                                        </td>
-                                        <td className="px-6 py-4 hidden md:table-cell">{formatDate(file.createdAt)}</td>
-                                        
-                                        {/* CỘT ACTION: NÚT 3 CHẤM */}
-                                        <td className="px-6 py-4 text-right">
-                                            <button 
-                                                onClick={(e) => handleThreeDotsClick(e, file)} // <--- SỰ KIỆN CLICK 3 CHẤM
-                                                className="p-2 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                                title="Tùy chọn"
-                                            >
-                                                <FaEllipsisV />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {files.map((file, index) => {
+                                    // Check xem file này có đang được chọn không
+                                    const isSelected = selectedFiles.some(f => f.id === file.id);
+                                    const isProcessing = file.status === 'PROCESSING'; // [MỚI] Check trạng thái
+                                    const isFailed = file.status === 'FAILED';
+
+                                    return (
+                                        <tr 
+                                            key={file.id} 
+                                            // [MỚI] SỰ KIỆN CLICK ROW
+                                            onClick={(e) => !isProcessing && !isFailed && handleSmartClick(e, file, index)}
+                                            onDoubleClick={() => !isProcessing && !isFailed && handleDoubleClick(file)}
+                                            onContextMenu={(e) => handleItemContextMenu(e, file)}
+                                            // [MỚI] ĐỔI MÀU NỀN KHI CHỌN
+                                            className={`transition border-b last:border-b-0 select-none group 
+                                                ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}
+                                                ${(isProcessing || isFailed) ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}
+                                            `}
+                                        >
+                                            {/* [MỚI] CỘT CHECKBOX ROW */}
+                                            <td className="px-4 py-4 text-center checkbox-area">
+                                                <button onClick={(e) => handleSelectFile(e, file)} className="text-gray-300 hover:text-blue-500">
+                                                    {isSelected ? <FaCheckSquare className="text-blue-600 text-lg"/> : <FaSquare className="text-lg"/>}
+                                                </button>
+                                            </td>
+                                            <td className="px-6 py-4 flex items-center gap-3">
+                                                {/* Gọi hàm getFileIcon mới (truyền cả object file) */}
+                                                {getFileIcon(file)} 
+                                                
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium text-gray-900 truncate max-w-xs" title={file.name}>
+                                                        {file.name}
+                                                    </span>
+                                                    {/* [MỚI] Hiển thị dòng trạng thái nhỏ bên dưới tên */}
+                                                    {isProcessing && <span className="text-xs text-blue-500 italic">Đang xử lý...</span>}
+                                                    {isFailed && (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-red-500 italic">Lỗi xử lý</span>
+                                                            <button 
+                                                                onClick={(e) => handleRetry(e, file)}
+                                                                className="text-xs flex items-center gap-1 text-gray-500 hover:text-blue-600 bg-gray-100 px-2 py-0.5 rounded border transition"
+                                                                title="Thử xử lý lại"
+                                                            >
+                                                                <FaRedo size={10} /> Thử lại
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 hidden sm:table-cell">
+                                                {file.type === 'FOLDER' ? '--' : formatBytes(file.size)}
+                                            </td>
+                                            <td className="px-6 py-4 hidden md:table-cell">{formatDate(file.updatedAt)}</td>
+                                            
+                                            {/* CỘT ACTION: NÚT 3 CHẤM */}
+                                            <td className="px-6 py-4 text-right">
+                                                <button 
+                                                    onClick={(e) => handleThreeDotsClick(e, file)} // <--- SỰ KIỆN CLICK 3 CHẤM
+                                                    className="p-2 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                                    title="Tùy chọn"
+                                                >
+                                                    <FaEllipsisV />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -798,30 +1213,59 @@ const DashboardPage = () => {
                 {/* --- GRID VIEW --- */}
                 {viewMode === 'grid' && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-fade-in">
-                        {files.map((file) => (
-                            <div 
-                                key={file.id} 
-                                className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md cursor-pointer flex flex-col items-center text-center transition group select-none relative"
-                                onDoubleClick={() => handleDoubleClick(file)}
-                                onContextMenu={(e) => handleItemContextMenu(e, file)}
-                            >
-                                {/* NÚT 3 CHẤM (Hiện khi hover) */}
-                                <button 
-                                    onClick={(e) => handleThreeDotsClick(e, file)} // <--- SỰ KIỆN CLICK 3 CHẤM
-                                    className="absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition z-10"
-                                >
-                                    <FaEllipsisV />
-                                </button>
+                        {files.map((file, index) => {
+                            const isSelected = selectedFiles.some(f => f.id === file.id);
+                            const isProcessing = file.status === 'PROCESSING'; // [MỚI] Check trạng thái
+                            const isFailed = file.status === 'FAILED';
 
-                                <div className="mt-2 mb-3 transform group-hover:scale-110 transition duration-200">
-                                    {getFileIcon(file.type, file.mimeType, true)}
+                            return (
+                                <div 
+                                    key={file.id} 
+                                    // [MỚI] Cập nhật class để hiện border xanh khi chọn
+                                    className={`p-4 rounded-lg border shadow-sm flex flex-col items-center text-center transition group select-none relative
+                                        ${isSelected ? 'bg-blue-50 border-blue-500 shadow-md' : 'bg-white border-gray-200 hover:shadow-md'}
+                                        ${(isProcessing || isFailed) ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}
+                                    `}
+                                    // [MỚI] Sự kiện Click
+                                    onClick={(e) => !isProcessing && !isFailed && handleSmartClick(e, file, index)}
+                                    onDoubleClick={() => !isProcessing && !isFailed && handleDoubleClick(file)}
+                                    onContextMenu={(e) => handleItemContextMenu(e, file)}
+                                >
+                                    {/* [MỚI] CHECKBOX TRÊN GÓC TRÁI (Hiện khi hover hoặc đã chọn) */}
+                                    <div className={`absolute top-2 left-2 z-10 checkbox-area ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition`}>
+                                        <button onClick={(e) => handleSelectFile(e, file)}>
+                                            {isSelected ? <FaCheckSquare className="text-blue-600 text-lg bg-white rounded-sm"/> : <FaSquare className="text-gray-300 text-lg hover:text-gray-400"/>}
+                                        </button>
+                                    </div>
+                                    {/* NÚT 3 CHẤM (Hiện khi hover) */}
+                                    <button 
+                                        onClick={(e) => handleThreeDotsClick(e, file)} // <--- SỰ KIỆN CLICK 3 CHẤM
+                                        className="absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition z-10"
+                                    >
+                                        <FaEllipsisV />
+                                    </button>
+
+                                    <div className="mt-2 mb-3 transform group-hover:scale-110 transition duration-200">
+                                        {getFileIcon(file, true)} {/* true = icon lớn */}
+                                    </div>
+                                    <p className="text-sm font-medium text-gray-800 truncate w-full px-1 mb-1" title={file.name}>{file.name}</p>
+                                    <p className="text-xs text-gray-500">
+                                        {isProcessing ? (
+                                            <span className="text-blue-500 italic">Đang xử lý...</span>
+                                        ) : isFailed ? (
+                                            <button 
+                                                onClick={(e) => handleRetry(e, file)}
+                                                className="flex items-center justify-center gap-1 text-red-500 hover:text-red-700 w-full"
+                                            >
+                                                <span className="italic">Lỗi</span> <FaRedo size={12}/>
+                                            </button>
+                                        ) : (
+                                            file.type === 'FOLDER' ? formatDate(file.updatedAt).split(' ')[0] : formatBytes(file.size)
+                                        )}
+                                    </p>
                                 </div>
-                                <p className="text-sm font-medium text-gray-800 truncate w-full px-1 mb-1" title={file.name}>{file.name}</p>
-                                <p className="text-xs text-gray-500">
-                                    {file.type === 'FOLDER' ? formatDate(file.createdAt).split(' ')[0] : formatBytes(file.size)}
-                                </p>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
             </>
@@ -836,39 +1280,32 @@ const DashboardPage = () => {
 
       {/* --- 5. CONTEXT MENU & MODALS --- */}
       
-      {/* Menu Chuột phải */}
-      {contextMenu.visible && (
-        <div 
-            className="fixed bg-white border border-gray-200 shadow-xl rounded-lg z-50 w-52 overflow-hidden animate-fade-in"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={(e) => e.stopPropagation()} 
-        >
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">
-                Tùy chọn
-            </div>
-            <button 
-                onClick={() => { setShowCreateModal(true); setContextMenu({ ...contextMenu, visible: false }); }}
-                className="w-full text-left px-4 py-2.5 hover:bg-gray-100 flex items-center gap-3 text-sm text-gray-700 transition"
-            >
-                <FaFolderPlus className="text-yellow-500" /> Thư mục mới
-            </button>
-            <button 
-                onClick={() => { fileInputRef.current.click(); setContextMenu({ ...contextMenu, visible: false }); }}
-                className="w-full text-left px-4 py-2.5 hover:bg-gray-100 flex items-center gap-3 text-sm text-gray-700 transition"
-            >
-                <FaFileUpload className="text-blue-500" /> Tải tệp lên
-            </button>
-            <button 
-                onClick={() => { folderInputRef.current.click(); setContextMenu({ ...contextMenu, visible: false }); }}
-                className="w-full text-left px-4 py-2.5 hover:bg-gray-100 flex items-center gap-3 text-sm text-gray-500 transition border-t"
-            >
-                <FaFolderOpen /> Tải thư mục lên
-            </button>
-        </div>
-      )}
+      {/* 1. Menu Nền */}
+        <BackgroundContextMenu 
+            menuState={contextMenu}
+            onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+            onAction={(type) => {
+                setContextMenu({ ...contextMenu, visible: false });
+                if (type === 'CREATE_FOLDER') setShowCreateModal(true);
+                if (type === 'UPLOAD_FILE') fileInputRef.current.click();
+                if (type === 'UPLOAD_FOLDER') folderInputRef.current.click();
+            }}
+            permissions={currentPermissions}
+        />
 
-      {/* --- HIỂN THỊ MENU ITEM --- */}
-      {itemMenu.visible && renderItemMenuOptions()}
+        {/* 2. Menu Item */}
+        <ItemContextMenu 
+            menuState={itemMenu}
+            onClose={() => setItemMenu({ ...itemMenu, visible: false })}
+            onAction={handleMenuAction} // Truyền hàm xử lý action cũ vào
+        />
+
+        {/* [MỚI] MENU CHO BREADCRUMB */}
+        <ItemContextMenu 
+            menuState={breadcrumbMenu}
+            onClose={() => setBreadcrumbMenu({ ...breadcrumbMenu, visible: false })}
+            onAction={handleMenuAction} // Tái sử dụng hàm xử lý action cũ
+        />
 
       {/* Thêm Input ẩn dành riêng cho Folder */}
       <input 
@@ -888,6 +1325,7 @@ const DashboardPage = () => {
         className="hidden" 
         ref={fileInputRef} 
         onChange={onFileSelectCtx} 
+        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       />
 
       {/* Modal Tạo Folder (dùng cho Context Menu) */}
@@ -1091,17 +1529,30 @@ const DashboardPage = () => {
                                         ) : (
                                             <FaUserCircle className="text-gray-300 w-6 h-6" />
                                         )}
-                                        <span className="text-sm font-medium text-gray-800">{infoData.owner?.name || infoData.owner?.email}</span>
+                                        <span className="text-sm font-medium text-gray-800">
+                                            {infoData.owner?.name || infoData.owner?.email}
+                                            {/* [MỚI] Thêm (bạn) */}
+                                            {infoData.owner?.id === currentUserId && <span className="text-gray-400 font-normal ml-1">(bạn)</span>}
+                                        </span>
                                     </div>
                                 </div>
 
                                 {/* Người sửa cuối */}
-                                {infoData.lastModifiedBy && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-gray-500">Sửa lần cuối bởi</span>
-                                        <span className="text-sm text-gray-700">{infoData.lastModifiedBy.name}</span>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-gray-500">Sửa lần cuối bởi</span>
+                                    <div className="flex items-center gap-2">
+                                        {infoData.lastModifiedBy?.avatarUrl ? (
+                                            <img src={infoData.lastModifiedBy.avatarUrl} alt="avatar" className="w-6 h-6 rounded-full" />
+                                        ) : (
+                                            <FaUserCircle className="text-gray-300 w-6 h-6" />
+                                        )}
+                                        <span className="text-sm font-medium text-gray-800">
+                                            {infoData.lastModifiedBy?.name || infoData.lastModifiedBy?.email}
+                                            {/* [MỚI] Thêm (bạn) */}
+                                            {infoData.lastModifiedBy?.id === currentUserId && <span className="text-gray-400 font-normal ml-1">(bạn)</span>}
+                                        </span>
                                     </div>
-                                )}
+                                </div>
 
                                 {/* Trạng thái chia sẻ */}
                                 <div>
@@ -1122,8 +1573,10 @@ const DashboardPage = () => {
                                                   </p>
                                                   <p className="text-xs text-gray-500">
                                                       {infoData.publicAccess === 'PRIVATE' 
-                                                          ? 'Chỉ những người được thêm mới có quyền truy cập.' 
-                                                          : 'Bất kỳ ai có đường dẫn đều có thể xem.'}
+                                                          ? 'Chỉ những người được thêm mới có thể mở đường liên kết này.' 
+                                                          : infoData.publicAccess === 'PUBLIC_VIEW'
+                                                            ? 'Bất kỳ ai trên Internet có đường liên kết này đều có thể xem.'
+                                                            : 'Bất kỳ ai trên Internet có đường liên kết này đều có thể chỉnh sửa.'}
                                                   </p>
                                               </div>
                                           </div>
@@ -1137,32 +1590,30 @@ const DashboardPage = () => {
                                                   {infoData.sharedWith.map((perm, index) => (
                                                       <div key={index} className="flex items-center justify-between p-2 bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50 transition">
                                                           {/* Thông tin User */}
-                                                          <div className="flex items-center gap-2 overflow-hidden">
-                                                              {perm.user?.avatarUrl ? (
-                                                                  <img src={perm.user.avatarUrl} alt="avt" className="w-9 h-9 rounded-full object-cover border border-gray-200" />
-                                                              ) : (
-                                                                  <FaUserCircle className="text-gray-300 w-9 h-9" />
-                                                              )}
-                                                              <div className="truncate">
-                                                                  <p className="text-sm font-medium text-gray-800 truncate" title={perm.user?.name}>{perm.user?.name}</p>
-                                                                  <p className="text-xs text-gray-500 truncate" title={perm.user?.email}>{perm.user?.email}</p>
-                                                              </div>
-                                                          </div>
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            {/* Avatar code giữ nguyên */}
+                                                            {perm.user?.avatarUrl ? (
+                                                                <img src={perm.user.avatarUrl} alt="avt" className="w-9 h-9 rounded-full object-cover border border-gray-200" />
+                                                            ) : (
+                                                                <FaUserCircle className="text-gray-300 w-9 h-9" />
+                                                            )}
+                                                            
+                                                            <div className="truncate">
+                                                                <p className="text-sm font-medium text-gray-800 truncate" title={perm.user?.name}>
+                                                                    {perm.user?.name}
+                                                                    {/* [MỚI] Thêm (bạn) */}
+                                                                    {perm.user?.id === currentUserId && <span className="text-gray-400 font-normal ml-1">(bạn)</span>}
+                                                                </p>
+                                                                <p className="text-xs text-gray-500 truncate" title={perm.user?.email}>{perm.user?.email}</p>
+                                                            </div>
+                                                        </div>
 
-                                                          {/* Badge Quyền (ĐÃ SỬA: Hỗ trợ 3 quyền VIEWER, COMMENTER, EDITOR) */}
-                                                          <span className={`text-xs font-bold px-2 py-1.5 rounded-full border min-w-[90px] text-center select-none ${
-                                                              perm.permissionType === 'EDITOR'
-                                                                  ? 'bg-orange-50 text-orange-700 border-orange-200'  // EDITOR: Màu Cam
-                                                                  : perm.permissionType === 'COMMENTER'
-                                                                      ? 'bg-teal-50 text-teal-700 border-teal-200'    // COMMENTER: Màu Xanh Ngọc
-                                                                      : 'bg-blue-50 text-blue-700 border-blue-200'    // VIEWER: Màu Xanh Dương
-                                                          }`}>
-                                                              {perm.permissionType === 'EDITOR' 
-                                                                  ? 'Chỉnh sửa' 
-                                                                  : perm.permissionType === 'COMMENTER' 
-                                                                      ? 'Nhận xét' 
-                                                                      : 'Người xem'}
-                                                          </span>
+                                                        {/* Badge Quyền (Updated Logic) */}
+                                                        <span className={`text-xs font-bold px-2 py-1.5 rounded-full border min-w-[90px] text-center select-none 
+                                                            ${getPermissionColor(perm.permissionType)}`}
+                                                        >
+                                                            {getPermissionLabel(perm.permissionType)}
+                                                        </span>
                                                       </div>
                                                   ))}
                                               </div>
@@ -1284,7 +1735,12 @@ const DashboardPage = () => {
                                       )}
                                       <div>
                                           <p className="text-sm font-medium text-gray-800">
-                                              {shareData.owner?.name} <span className="text-gray-400 font-normal">(bạn)</span>
+                                            {shareData.owner?.name} 
+                                            
+                                            {/* [SỬA] So sánh ID owner với ID current user */}
+                                            {shareData.owner?.id === currentUserId && (
+                                                <span className="text-gray-400 font-normal ml-1">(bạn)</span>
+                                            )}
                                           </p>
                                           <p className="text-xs text-gray-500">{shareData.owner?.email}</p>
                                       </div>
@@ -1293,58 +1749,78 @@ const DashboardPage = () => {
                               </div>
 
                               {/* B. Danh sách được chia sẻ */}
-                              {shareData.sharedWith?.map((perm, idx) => (
-                                  <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition group">
-                                      
-                                      {/* 1. Thông tin User (Avatar + Tên) */}
-                                      <div className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
-                                          {perm.user?.avatarUrl ? (
-                                              <img src={perm.user.avatarUrl} alt="user" className="w-10 h-10 rounded-full border border-gray-200 object-cover shrink-0" />
-                                          ) : (
-                                              <FaUserCircle className="text-gray-300 w-10 h-10 shrink-0" />
-                                          )}
-                                          <div className="truncate">
-                                              <p className="text-sm font-medium text-gray-800 truncate" title={perm.user?.name}>{perm.user?.name}</p>
-                                              <p className="text-xs text-gray-500 truncate" title={perm.user?.email}>{perm.user?.email}</p>
-                                          </div>
-                                      </div>
-                                      
-                                      {/* 2. Cụm điều khiển (Select Quyền + Nút Xóa) */}
-                                      <div className="flex items-center gap-2 shrink-0">
-                                          {/* Nút xóa quyền */}
-                                          <button 
-                                              onClick={() => clickRevoke(perm.user)}
-                                              className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition opacity-0 group-hover:opacity-100"
-                                              title="Gỡ bỏ quyền truy cập"
-                                          >
-                                              <FaTimes size={14} />
-                                          </button>
-                                          {/* --- BADGE SELECT (Thay thế Span cũ) --- */}
-                                          <div className={`relative px-2 py-1.5 rounded-full border flex items-center gap-1 transition-colors ${getPermissionColor(perm.permissionType)}`}>
-                                              
-                                              {/* Thẻ Select tàng hình phủ lên trên để hứng sự kiện click */}
-                                              <select 
-                                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                  value={perm.permissionType}
-                                                  onChange={(e) => handleUpdatePermission(perm.user.email, e.target.value)}
-                                              >
-                                                  <option value="VIEWER">Người xem</option>
-                                                  <option value="COMMENTER">Người nhận xét</option>
-                                                  <option value="EDITOR">Người chỉnh sửa</option>
-                                              </select>
+                              {shareData.sharedWith?.map((perm, idx) => {
+                                // [MỚI] Biến kiểm tra xem có phải Thái Thượng Hoàng không
+                                const isInherited = perm.permissionType === 'INHERITED_OWNER';
+                                const isMe = perm.user?.id === currentUserId;
 
-                                              {/* Phần hiển thị giả (Text + Icon mũi tên) */}
-                                              <span className="text-xs font-bold min-w-[60px] text-center select-none pointer-events-none">
-                                                  {getPermissionLabel(perm.permissionType)}
-                                              </span>
-                                              <FaCaretDown size={10} className="pointer-events-none opacity-70" />
-                                              
-                                          </div>
-                                          
-                                          
-                                      </div>
-                                  </div>
-                              ))}
+                                return (
+                                    <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition group">
+                                        
+                                        {/* 1. Thông tin User */}
+                                        <div className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
+                                            {perm.user?.avatarUrl ? (
+                                                <img src={perm.user.avatarUrl} alt="user" className="w-10 h-10 rounded-full border border-gray-200 object-cover shrink-0" />
+                                            ) : (
+                                                <FaUserCircle className="text-gray-300 w-10 h-10 shrink-0" />
+                                            )}
+                                            
+                                            <div className="truncate">
+                                                {/* [SỬA] Hiển thị tên kèm (bạn) nếu trùng ID */}
+                                                <p className="text-sm font-medium text-gray-800 truncate" title={perm.user?.name}>
+                                                    {perm.user?.name}
+                                                    {isMe && <span className="text-gray-400 font-normal ml-1">(bạn)</span>}
+                                                </p>
+                                                
+                                                <p className="text-xs text-gray-500 truncate" title={perm.user?.email}>{perm.user?.email}</p>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* 2. Cụm điều khiển (Select Quyền + Nút Xóa) */}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            
+                                            {/* Nút xóa quyền: CHỈ HIỆN NẾU KHÔNG PHẢI KẾ THỪA */}
+                                            {!isInherited && (
+                                                <button 
+                                                    onClick={() => clickRevoke(perm.user)}
+                                                    className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition opacity-0 group-hover:opacity-100"
+                                                    title="Gỡ bỏ quyền truy cập"
+                                                >
+                                                    <FaTimes size={14} />
+                                                </button>
+                                            )}
+
+                                            {/* --- BADGE SELECT --- */}
+                                            <div className={`relative px-2 py-1.5 rounded-full border flex items-center gap-1 transition-colors ${getPermissionColor(perm.permissionType)}`}>
+                                                
+                                                {/* Thẻ Select tàng hình: CHỈ RENDER NẾU KHÔNG PHẢI KẾ THỪA */}
+                                                {!isInherited && (
+                                                    <select 
+                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                        value={perm.permissionType}
+                                                        onChange={(e) => handleUpdatePermission(perm.user.email, e.target.value)}
+                                                    >
+                                                        <option value="VIEWER">Người xem</option>
+                                                        <option value="COMMENTER">Người nhận xét</option>
+                                                        <option value="EDITOR">Người chỉnh sửa</option>
+                                                    </select>
+                                                )}
+
+                                                {/* Phần hiển thị Text + Icon */}
+                                                <span className="text-xs font-bold min-w-[60px] text-center select-none pointer-events-none">
+                                                    {getPermissionLabel(perm.permissionType)}
+                                                </span>
+                                                
+                                                {/* Chỉ hiện mũi tên nếu cho phép sửa */}
+                                                {!isInherited && (
+                                                    <FaCaretDown size={10} className="pointer-events-none opacity-70" />
+                                                )}
+                                                
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                           </div>
                         </div>
 
@@ -1447,8 +1923,175 @@ const DashboardPage = () => {
             </div>
         </div>
       )}
+
+      {/* [MỚI] MODAL DI CHUYỂN */}
+      <MoveFileModal 
+          isOpen={showMoveModal}
+          onClose={() => setShowMoveModal(false)}
+          selectedItems={selectedFiles} // Truyền danh sách file đang chọn
+          onSuccess={handleMoveSuccess} // Callback khi xong
+      />
+
+      {/* MODAL XOÁ ĐẸP */}
+            <DeleteConfirmModal 
+                isOpen={showDeleteModal}
+                onClose={() => setShowDeleteModal(false)}
+                onConfirm={executeDelete}
+                count={filesToDelete.length}
+                isLoading={deleting}
+                isPermanent={false} // Đây là xóa tạm vào thùng rác
+            />
     </div>
   );
+};
+
+// Component hiển thị Menu cho File/Folder
+const ItemContextMenu = ({ menuState, onClose, onAction }) => {
+    const menuRef = useRef(null);
+    const { top, left } = useMenuPosition(menuRef, menuState.x, menuState.y, menuState.visible);
+
+    const file = menuState.file;
+    if (!file || !menuState.visible) return null;
+
+    // 1. Lấy quyền từ object permissions mới (Fallback về false để an toàn)
+    const perms = file.permissions || {
+        canDownload: false,
+        canRename: false,
+        canUpdateDescription: false,
+        canMove: false,
+        canCopy: false,
+        canShare: false,
+        canDelete: false,
+        canRestore: false,
+        canViewDetails: true,
+        canCopyLink: true
+    };
+
+    // 2. Config Menu (Map đúng key từ BE)
+    const menuConfig = [
+        // Nhóm Tải
+        { label: 'Tải xuống', action: 'DOWNLOAD', icon: <FaDownload className="text-blue-500"/>, show: perms.canDownload },
+        
+        // Nhóm Sửa đổi
+        { label: 'Đổi tên', action: 'RENAME', icon: <FaPen className="text-gray-500"/>, show: perms.canRename },
+        { label: 'Di chuyển', action: 'MOVE', icon: <FaArrowsAlt className="text-gray-600"/>, show: perms.canMove },
+        { label: 'Tạo bản sao', action: 'COPY', icon: <FaClone className="text-purple-500"/>, show: perms.canCopy }, // BE đã check folder/file
+        
+        // Nhóm Chia sẻ
+        { label: 'Chia sẻ', action: 'SHARE', icon: <FaShareAlt className="text-blue-600"/>, show: perms.canShare },
+        { label: 'Sao chép liên kết', action: 'COPY_LINK', icon: <FaLink className="text-gray-600"/>, show: perms.canCopyLink },
+        
+        // Nhóm Khác
+        { label: 'Cập nhật mô tả', action: 'UPDATE_DESC', icon: <FaInfoCircle className="text-gray-500"/>, show: perms.canUpdateDescription }, // Thường đi kèm quyền Rename
+        { label: 'Thông tin chi tiết', action: 'INFO', icon: <FaInfoCircle className="text-blue-400"/>, show: perms.canViewDetails },
+        
+        // Nhóm Thùng rác
+        { label: 'Khôi phục', action: 'RESTORE', icon: <FaTrashRestore className="text-green-600"/>, show: perms.canRestore },
+        { label: 'Chuyển vào thùng rác', action: 'TRASH', icon: <FaTrash className="text-red-500"/>, isDanger: true, show: perms.canDelete } // Soft Delete
+    ];
+
+    const validOptions = menuConfig.filter(opt => opt.show);
+    if (validOptions.length === 0) return null;
+
+    return (
+        <div 
+            ref={menuRef}
+            className="fixed bg-white border border-gray-200 shadow-xl rounded-lg z-[100] w-64 py-2 animate-fade-in text-sm"
+            style={{ top, left, visibility: top === -9999 ? 'hidden' : 'visible' }}
+            onClick={(e) => e.stopPropagation()}
+        >
+             <div className="px-4 py-2 border-b bg-gray-50 text-xs font-semibold text-gray-500 truncate select-none">
+                {file.name}
+             </div>
+             <div className="py-1">
+                 {validOptions.map((opt, idx) => (
+                    <button 
+                        key={idx}
+                        onClick={() => onAction(opt.action, file)}
+                        className={`w-full text-left px-4 py-2.5 hover:bg-gray-100 flex items-center gap-3 transition
+                            ${opt.isDanger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'}
+                            ${opt.action === 'TRASH' ? 'border-t mt-1' : ''}
+                        `}
+                    >
+                        <span className="text-base min-w-[20px]">{opt.icon}</span>
+                        <span>{opt.label}</span>
+                    </button>
+                 ))}
+             </div>
+        </div>
+    );
+};
+
+// Component hiển thị Menu chuột phải ở vùng trống
+const BackgroundContextMenu = ({ menuState, onClose, onAction, permissions }) => {
+    const menuRef = useRef(null);
+    const { top, left } = useMenuPosition(menuRef, menuState.x, menuState.y, menuState.visible);
+
+    if (!menuState.visible) return null;
+
+    // Fallback nếu chưa load xong permissions
+    const perms = permissions || { canCreateFolder: false, canUploadFile: false, canUploadFolder: false };
+
+    // Helper render button item
+    const renderMenuItem = (label, action, icon, canDo, isBorderTop = false) => {
+        return (
+            <button 
+                onClick={() => {
+                    if (canDo) onAction(action);
+                }}
+                disabled={!canDo}
+                className={`w-full text-left px-4 py-2.5 flex items-center gap-3 text-sm transition
+                    ${isBorderTop ? 'border-t' : ''}
+                    ${canDo 
+                        ? 'text-gray-700 hover:bg-gray-100 cursor-pointer' 
+                        : 'text-gray-400 cursor-not-allowed bg-gray-50' // Style disabled
+                    }
+                `}
+                title={!canDo ? "Bạn không có quyền thực hiện hành động này" : ""}
+            >
+                <span className={canDo ? "" : "opacity-50"}>{icon}</span>
+                <span>{label}</span>
+            </button>
+        );
+    };
+
+    return (
+        <div 
+            ref={menuRef}
+            className="fixed bg-white border border-gray-200 shadow-xl rounded-lg z-50 w-52 overflow-hidden animate-fade-in"
+            style={{ top, left, visibility: top === -9999 ? 'hidden' : 'visible' }}
+            onClick={(e) => e.stopPropagation()} 
+        >
+            <div className="px-3 py-2 text-xs font-semibold text-gray-400 bg-gray-50 border-b">
+                Tùy chọn thư mục
+            </div>
+            
+            {/* Tạo thư mục mới */}
+            {renderMenuItem(
+                'Thư mục mới', 
+                'CREATE_FOLDER', 
+                <FaFolderPlus className={perms.canCreateFolder ? "text-yellow-500" : "text-gray-400"} />, 
+                perms.canCreateFolder
+            )}
+
+            {/* Tải tệp lên */}
+            {renderMenuItem(
+                'Tải tệp lên', 
+                'UPLOAD_FILE', 
+                <FaFileUpload className={perms.canUploadFile ? "text-blue-500" : "text-gray-400"} />, 
+                perms.canUploadFile
+            )}
+
+            {/* Tải thư mục lên */}
+            {renderMenuItem(
+                'Tải thư mục lên', 
+                'UPLOAD_FOLDER', 
+                <FaFolderOpen className={perms.canUploadFolder ? "text-gray-500" : "text-gray-400"} />, 
+                perms.canUploadFolder,
+                true // border-top
+            )}
+        </div>
+    );
 };
 
 export default DashboardPage;

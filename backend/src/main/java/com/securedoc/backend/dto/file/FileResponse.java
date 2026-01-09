@@ -1,5 +1,6 @@
 package com.securedoc.backend.dto.file;
 
+import com.securedoc.backend.dto.response.UserPermissions;
 import com.securedoc.backend.enums.EFileStatus;
 import com.securedoc.backend.enums.EFileType;
 import lombok.AllArgsConstructor;
@@ -38,6 +39,9 @@ public class FileResponse {
     // --- Thông tin bổ sung ---
     private boolean isPublic;
     private String ownerId;
+    private String ownerName;   // Tên người chia sẻ
+    private String ownerAvatar; // Avatar người chia sẻ
+    private String ownerEmail;
 
     // --- Audit Info (Thông tin người tạo/sửa) ---
     private String createdBy;       // ID người tạo
@@ -45,4 +49,8 @@ public class FileResponse {
 
     private String lastModifiedBy;  // ID người sửa cuối
     private LocalDateTime updatedAt;
+
+    private LocalDateTime sharedAt;
+
+    private UserPermissions permissions;
 }

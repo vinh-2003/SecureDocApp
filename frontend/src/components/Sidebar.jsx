@@ -1,11 +1,14 @@
 import React, { useState, useContext, useRef, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
-import { FaFolder, FaShareAlt, FaClock, FaTrash, FaCloudUploadAlt, FaFolderPlus, FaFileUpload, FaFolderOpen } from 'react-icons/fa';
+import { NavLink, useLocation } from 'react-router-dom';
+import { 
+    FaFolder, FaShareAlt, FaClock, FaTrash, FaCloudUploadAlt, 
+    FaFolderPlus, FaFileUpload, FaFolderOpen, FaUserShield 
+} from 'react-icons/fa';
 import { FileContext } from '../context/FileContext';
-// import { toast } from 'react-toastify';
+import { toast } from 'react-toastify';
 
 const Sidebar = () => {
-  const { handleCreateFolder, handleUploadFile, handleUploadFolder } = useContext(FileContext);
+  const { handleCreateFolder, handleUploadFile, handleUploadFolder, currentPermissions } = useContext(FileContext);
   
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -14,6 +17,24 @@ const Sidebar = () => {
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+
+  // [MỚI] Lấy đường dẫn hiện tại
+  const location = useLocation();
+
+  // [LOGIC MỚI] Tính toán quyền hiển thị nút Tải lên
+  // Chỉ cho phép tải lên nếu đang ở Root ('/') hoặc trong Folder ('/folders/...')
+  // Các trang khác như /shared, /trash, /recent đều KHÔNG ĐƯỢC upload
+  const isValidLocation = location.pathname === '/' || location.pathname.startsWith('/folders/');
+  
+  // Quyền thực tế = (Đúng vị trí) AND (Có quyền từ Context)
+  const effectivePerms = {
+      canCreateFolder: isValidLocation && currentPermissions.canCreateFolder,
+      canUploadFile: isValidLocation && currentPermissions.canUploadFile,
+      canUploadFolder: isValidLocation && currentPermissions.canUploadFolder
+  };
+
+  // Nút chính chỉ active nếu có ÍT NHẤT 1 hành động được phép
+  const canDoAnything = effectivePerms.canCreateFolder || effectivePerms.canUploadFile || effectivePerms.canUploadFolder;
 
   // Đóng menu khi click ra ngoài
   useEffect(() => {
@@ -38,36 +59,102 @@ const Sidebar = () => {
     }
   };
 
+  // --- HELPER: CHECK ĐỊNH DẠNG FILE ---
+  const isAllowedFile = (file) => {
+      const allowedExtensions = ['pdf', 'doc', 'docx'];
+      const allowedMimeTypes = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+
+      // 1. Check theo MIME Type (Chính xác hơn)
+      if (allowedMimeTypes.includes(file.type)) return true;
+
+      // 2. Check theo đuôi file (Dự phòng trường hợp Windows/Browser không nhận diện được MIME)
+      const ext = file.name.split('.').pop().toLowerCase();
+      return allowedExtensions.includes(ext);
+  };
+
   // --- HANDLER: UPLOAD FILE ---
   const onFileSelect = async (e) => {
-      // TỐI ƯU: Lấy toàn bộ FileList thay vì chỉ lấy files[0]
-      const files = e.target.files; 
-      
-      if(files && files.length > 0) {
-          // Truyền cả danh sách sang Context để xử lý Batch Upload
-          await handleUploadFile(files); 
-          
-          // Reset input
-          e.target.value = null; 
+      const rawFiles = e.target.files; 
+      if (!rawFiles || rawFiles.length === 0) return;
+
+      const allFiles = Array.from(rawFiles);
+
+      // Lọc file hợp lệ
+      const validFiles = allFiles.filter(file => isAllowedFile(file));
+
+      // Cảnh báo nếu có file bị loại
+      if (validFiles.length < allFiles.length) {
+          toast.warning(`Đã bỏ qua ${allFiles.length - validFiles.length} tệp không hỗ trợ (Chỉ chấp nhận PDF, Word).`);
       }
+      
+      if(validFiles.length > 0) {
+          await handleUploadFile(validFiles); 
+      }
+
+      // Reset input và đóng menu
+      e.target.value = null; 
       setShowUploadMenu(false);
   };
 
   const onFolderSelect = async (e) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-          await handleUploadFolder(files); // Gọi hàm mới
+      const rawFiles = e.target.files;
+      if (!rawFiles || rawFiles.length === 0) return;
+
+      const allFiles = Array.from(rawFiles);
+
+      // Lọc file hợp lệ trong folder
+      const validFiles = allFiles.filter(file => isAllowedFile(file));
+
+      if (validFiles.length === 0) {
+          toast.error("Thư mục không chứa tệp PDF hoặc Word nào.");
           e.target.value = null;
+          setShowUploadMenu(false);
+          return;
       }
+
+      if (validFiles.length < allFiles.length) {
+          toast.info(`Đang tải lên ${validFiles.length} tệp hợp lệ trong thư mục.`);
+      }
+
+      // Gọi hàm upload
+      await handleUploadFolder(validFiles); 
+      
+      e.target.value = null;
       setShowUploadMenu(false);
   };
+
+  // Helper render item trong dropdown (để tránh lặp code)
+  const renderDropdownItem = (label, icon, onClick, canDo, isBorderTop = false) => (
+      <button 
+          onClick={() => {
+              if (canDo) onClick();
+          }}
+          disabled={!canDo}
+          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition
+              ${isBorderTop ? 'border-t border-gray-100' : ''}
+              ${canDo 
+                  ? 'hover:bg-gray-100 cursor-pointer text-gray-800' 
+                  : 'text-gray-400 cursor-not-allowed bg-gray-50' // Style khi bị disabled
+              }
+          `}
+          title={!canDo ? "Bạn không có quyền thực hiện hành động này" : ""}
+      >
+          <span className={canDo ? "" : "opacity-50"}>{icon}</span>
+          <span>{label}</span>
+      </button>
+  );
 
   const menus = [
     { path: '/', name: 'Tài liệu của tôi', icon: <FaFolder /> },
     { path: '/shared', name: 'Được chia sẻ', icon: <FaShareAlt /> },
+    { path: '/requests', name: 'Yêu cầu truy cập', icon: <FaUserShield /> }, // <--- Thêm dòng này
     { path: '/recent', name: 'Gần đây', icon: <FaClock /> },
     { path: '/trash', name: 'Thùng rác', icon: <FaTrash /> },
-  ];
+];
 
   return (
     <>
@@ -79,59 +166,67 @@ const Sidebar = () => {
         {/* NÚT TẢI LÊN + DROPDOWN */}
         <div className="p-4 relative" ref={menuRef}>
             <button 
-                onClick={() => setShowUploadMenu(!showUploadMenu)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 font-medium transition shadow-lg"
+                onClick={() => {
+                    // Chỉ mở menu nếu có ít nhất 1 quyền
+                    if (canDoAnything) setShowUploadMenu(!showUploadMenu);
+                }}
+                disabled={!canDoAnything} // Disable nút to nếu không làm được gì
+                className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-2 font-medium transition shadow-lg
+                    ${canDoAnything 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' 
+                        : 'bg-gray-700 text-gray-400 cursor-not-allowed opacity-70' // Style nút to khi disable
+                    }
+                `}
             >
                 <FaCloudUploadAlt size={20} />
                 <span>Tải lên mới</span>
             </button>
 
             {/* Dropdown Menu */}
-            {showUploadMenu && (
-                <div className="absolute left-4 right-4 top-16 bg-white text-gray-800 rounded-lg shadow-xl border border-gray-200 z-50 animate-fade-in overflow-hidden">
-                    <button 
-                        onClick={() => { setShowCreateModal(true); setShowUploadMenu(false); }}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 flex items-center gap-3 transition"
-                    >
-                        <FaFolderPlus className="text-yellow-500" /> Thư mục mới
-                    </button>
+            {showUploadMenu && canDoAnything && (
+                <div className="absolute left-4 right-4 top-16 bg-white rounded-lg shadow-xl border border-gray-200 z-50 animate-fade-in overflow-hidden">
                     
-                    <button 
-                        onClick={() => fileInputRef.current.click()}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 flex items-center gap-3 transition border-t border-gray-100"
-                    >
-                        <FaFileUpload className="text-blue-500" /> Tải tệp lên
-                    </button>
+                    {/* Thư mục mới */}
+                    {renderDropdownItem(
+                        'Thư mục mới',
+                        <FaFolderPlus className={effectivePerms.canCreateFolder ? "text-yellow-500" : "text-gray-400"} />,
+                        () => { setShowCreateModal(true); setShowUploadMenu(false); },
+                        effectivePerms.canCreateFolder
+                    )}
                     
-                    <button 
-                        onClick={() => { folderInputRef.current.click(); }}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-100 flex items-center gap-3 transition border-t border-gray-100 text-gray-500"
-                    >
-                        <FaFolderOpen /> Tải thư mục lên
-                    </button>
+                    {/* Tải tệp lên */}
+                    {renderDropdownItem(
+                        'Tải tệp lên',
+                        <FaFileUpload className={effectivePerms.canUploadFile ? "text-blue-500" : "text-gray-400"} />,
+                        () => fileInputRef.current.click(),
+                        effectivePerms.canUploadFile,
+                        true // borderTop
+                    )}
+                    
+                    {/* Tải thư mục lên */}
+                    {renderDropdownItem(
+                        'Tải thư mục lên',
+                        <FaFolderOpen className={effectivePerms.canUploadFolder ? "text-gray-500" : "text-gray-400"} />,
+                        () => folderInputRef.current.click(),
+                        effectivePerms.canUploadFolder,
+                        true // borderTop
+                    )}
                 </div>
             )}
 
-            {/* Hidden Input File */}
+            {/* Inputs ẩn giữ nguyên */}
             <input 
-                type="file" 
-                multiple
-                className="hidden" 
-                ref={fileInputRef} 
-                onChange={onFileSelect}
+                type="file" multiple className="hidden" 
+                ref={fileInputRef} onChange={onFileSelect}
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             />
-            {/* Thêm Input ẩn dành riêng cho Folder */}
             <input 
-                type="file"
-                className="hidden"
-                ref={folderInputRef}
-                onChange={onFolderSelect}
-                webkitdirectory=""  // Quan trọng: Cho phép chọn folder (Chrome/Edge)
-                directory=""        // Quan trọng: Fallback cho Firefox cũ
-                multiple            // Bắt buộc
+                type="file" className="hidden" ref={folderInputRef} 
+                onChange={onFolderSelect} webkitdirectory="" directory="" multiple 
             />
         </div>
 
+        {/* Navigation Links giữ nguyên */}
         <nav className="flex-1 px-2 space-y-1">
             {menus.map((item) => (
             <NavLink

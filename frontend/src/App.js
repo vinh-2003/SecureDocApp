@@ -17,6 +17,11 @@ import DashboardPage from './pages/Dashboard/DashboardPage';
 import { FileProvider } from './context/FileContext';
 import SearchPage from './pages/Search/SearchPage';
 import ProfilePage from './pages/Profile/ProfilePage';
+import FileViewerPage from './pages/FileViewer/FileViewerPage';
+import IncomingRequestPage from './pages/Request/IncomingRequestPage';
+import RecentPage from './pages/Recent/RecentPage';
+import TrashPage from './pages/TrashPage';
+import SharedPage from './pages/SharedPage';
 
 // // Trang Home tạm thời
 // const HomePage = () => <h1 className="text-3xl text-center mt-10">Chào mừng đến với SecureDoc!</h1>;
@@ -52,10 +57,17 @@ function App() {
 
                     {/* Trang thông tin tài khoản */}
                     <Route path="/profile" element={<ProfilePage />} />
-                    
-                    {/* Các trang chức năng khác sẽ thêm sau */}
-                    <Route path="/shared" element={<div>Trang Shared</div>} />
-                    <Route path="/trash" element={<div>Trang Trash</div>} />
+
+                    <Route path="/file/view/:fileId" element={<FileViewerPage />} />
+
+                    <Route path="/requests" element={<IncomingRequestPage />} />
+
+                    <Route path="/recent" element={<RecentPage />} />
+
+                    <Route path="/trash" element={<TrashPage />} />
+
+                    <Route path="/shared" element={<SharedPage />} />
+              
                   </Route>
                 </Route>
 

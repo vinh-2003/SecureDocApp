@@ -8,6 +8,13 @@ export const FileProvider = ({ children }) => {
   // Trạng thái thư mục hiện tại (null = Root)
   const [currentFolder, setCurrentFolder] = useState(null);
   const [currentFolderName, setCurrentFolderName] = useState('Thư mục gốc');
+
+  // [MỚI] State lưu quyền của thư mục hiện tại (Mặc định full quyền cho Root)
+    const [currentPermissions, setCurrentPermissions] = useState({
+        canCreateFolder: true,
+        canUploadFile: true,
+        canUploadFolder: true
+    });
   
   // Biến dùng để ép Dashboard reload lại dữ liệu
   const [refreshKey, setRefreshKey] = useState(0);
@@ -15,6 +22,11 @@ export const FileProvider = ({ children }) => {
   const triggerRefresh = () => setRefreshKey(prev => prev + 1);
 
   // --- LOGIC TẠO FOLDER (GIỮ NGUYÊN) ---
+  // Hàm update quyền (Dashboard sẽ gọi hàm này khi load folder)
+    const updatePermissions = (perms) => {
+        setCurrentPermissions(perms);
+    };
+
   const handleCreateFolder = async (name) => {
     try {
       await fileService.createFolder(name, currentFolder);
@@ -282,7 +294,9 @@ export const FileProvider = ({ children }) => {
         handleUploadFile, // Hàm này giờ nhận vào FileList
         handleUploadFolder,
         handleRename,
-        handleUpdateDescription
+        handleUpdateDescription,
+        currentPermissions,  // <--- Export state
+        updatePermissions
     }}>
       {children}
     </FileContext.Provider>

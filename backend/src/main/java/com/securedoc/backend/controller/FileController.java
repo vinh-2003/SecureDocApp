@@ -2,6 +2,8 @@ package com.securedoc.backend.controller;
 
 import com.mongodb.client.gridfs.model.GridFSFile;
 import com.securedoc.backend.dto.file.*;
+import com.securedoc.backend.dto.response.BreadcrumbDto;
+import com.securedoc.backend.dto.response.RecentFileResponse;
 import com.securedoc.backend.exception.AppErrorCode;
 import com.securedoc.backend.exception.AppException;
 import com.securedoc.backend.payload.response.ApiResponse;
@@ -92,34 +94,46 @@ public class FileController {
         return ResponseEntity.ok(ApiResponse.success(report, message));
     }
 
+    @PostMapping("/{id}/retry")
+    public ResponseEntity<ApiResponse<Void>> retryFile(@PathVariable String id) {
+        String userId = getCurrentUserId();
+        try {
+            fileStorageService.retryProcessing(id, userId);
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+
     /**
      * TẢI XUỐNG HOẶC XEM FILE
-     * URL: /api/files/download/{id}?inline=true (Xem)
      * URL: /api/files/download/{id}             (Tải)
      */
     @GetMapping("/download/{id}")
-    public ResponseEntity<Resource> downloadFile(
-            @PathVariable String id,
-            @RequestParam(defaultValue = "false") boolean inline // Tham số mới
-    ) throws Exception {
+    public ResponseEntity<Resource> downloadFile(@PathVariable String id) {
+        try {
+            String userId = getCurrentUserId(); // Bắt buộc Login
 
-        String userId = getCurrentUserId(); // Bắt buộc Login
+            // Gọi Service (Đã bao gồm logic Decrypt + Ghi Log Recent)
+            FileDownloadResponse fileResponse = fileStorageService.downloadFile(id, userId);
 
-        // Gọi Service (Đã bao gồm logic Decrypt + Ghi Log Recent)
-        FileDownloadResponse fileResponse = fileStorageService.downloadFile(id, userId);
+            // Encode tên file tiếng Việt cho Header
+            String encodedFileName = URLEncoder.encode(fileResponse.getFileName(), StandardCharsets.UTF_8)
+                    .replaceAll("\\+", "%20");
 
-        // Encode tên file tiếng Việt cho Header
-        String encodedFileName = URLEncoder.encode(fileResponse.getFileName(), StandardCharsets.UTF_8.toString())
-                .replaceAll("\\+", "%20");
+            // Quyết định kiểu trả về (Attachment hay Inline)
+            String dispositionType = "attachment";
 
-        // Quyết định kiểu trả về (Attachment hay Inline)
-        String dispositionType = inline ? "inline" : "attachment";
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(fileResponse.getContentType()))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        dispositionType + "; filename*=UTF-8''" + encodedFileName)
-                .body(fileResponse.getStream());
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(fileResponse.getContentType()))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            dispositionType + "; filename*=UTF-8''" + encodedFileName)
+                    .body(fileResponse.getStream());
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage());
+        }
     }
 
     /**
@@ -243,9 +257,16 @@ public class FileController {
      * LẤY BREADCRUMBS CHO FOLDER
      * GET /api/files/breadcrumbs/{folderId}
      */
+//    @GetMapping("/breadcrumbs/{folderId}")
+//    public ResponseEntity<ApiResponse<List<FileResponse>>> getBreadcrumbs(@PathVariable String folderId) {
+//        List<FileResponse> breadcrumbs = fileStorageService.getBreadcrumbs(folderId);
+//        return ResponseEntity.ok(ApiResponse.success(breadcrumbs));
+//    }
+
     @GetMapping("/breadcrumbs/{folderId}")
-    public ResponseEntity<ApiResponse<List<FileResponse>>> getBreadcrumbs(@PathVariable String folderId) {
-        List<FileResponse> breadcrumbs = fileStorageService.getBreadcrumbs(folderId);
+    public ResponseEntity<ApiResponse<List<BreadcrumbDto>>> getBreadcrumbs(@PathVariable String folderId) {
+        String userId = getCurrentUserId();
+        List<BreadcrumbDto> breadcrumbs = fileStorageService.getContextAwareBreadcrumbs(folderId, userId);
         return ResponseEntity.ok(ApiResponse.success(breadcrumbs));
     }
 
@@ -302,6 +323,99 @@ public class FileController {
         return ResponseEntity.ok(ApiResponse.success("Đã cập nhật quyền truy cập chung"));
     }
 
+    @GetMapping("/recent")
+    public ResponseEntity<ApiResponse<List<RecentFileResponse>>> getRecentFiles(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        String userId = getCurrentUserId();
+        List<RecentFileResponse> files = fileStorageService.getRecentFiles(userId, page, limit);
+        return ResponseEntity.ok(ApiResponse.success(files));
+    }
+
+    /**
+     * LẤY DANH SÁCH FILE ĐƯỢC CHIA SẺ VỚI TÔI
+     * GET /api/files/shared
+     */
+    @GetMapping("/shared")
+    public ResponseEntity<ApiResponse<List<FileResponse>>> getSharedFiles(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int limit
+    ) {
+        String userId = getCurrentUserId();
+        List<FileResponse> files = fileStorageService.getSharedFiles(userId, page, limit);
+        return ResponseEntity.ok(ApiResponse.success(files));
+    }
+
+    /**
+     * DI CHUYỂN FILE/FOLDER
+     * PUT /api/files/move
+     */
+    @PutMapping("/move")
+    public ResponseEntity<ApiResponse<BatchUploadResponse>> moveFiles(
+            @Valid @RequestBody FileMoveRequest request
+    ) {
+        String userId = getCurrentUserId();
+
+        // Gọi service
+        BatchUploadResponse report = fileStorageService.moveFiles(request, userId);
+
+        String message = "Đã di chuyển " + report.getSuccessCount() + " mục thành công.";
+        if (report.getFailCount() > 0) {
+            message += " (" + report.getFailCount() + " thất bại)";
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(report, message));
+    }
+
+    // ==================================================================
+    // 3. API QUẢN LÝ THÙNG RÁC
+    // ==================================================================
+
+    @PutMapping("/trash")
+    public ResponseEntity<ApiResponse<String>> moveToTrash(@RequestBody @Valid FileIdListRequest request) {
+        String userId = getCurrentUserId();
+        fileStorageService.moveToTrash(request, userId);
+        return ResponseEntity.ok(ApiResponse.success("Đã chuyển vào thùng rác"));
+    }
+
+    @PutMapping("/restore")
+    public ResponseEntity<ApiResponse<String>> restoreFiles(@RequestBody @Valid FileIdListRequest request) {
+        String userId = getCurrentUserId();
+        fileStorageService.restoreFiles(request, userId);
+        return ResponseEntity.ok(ApiResponse.success("Đã khôi phục tài liệu"));
+    }
+
+    @DeleteMapping("/permanent")
+    public ResponseEntity<ApiResponse<String>> deletePermanently(@RequestBody @Valid FileIdListRequest request) {
+        String userId = getCurrentUserId();
+        fileStorageService.deletePermanently(request, userId);
+        return ResponseEntity.ok(ApiResponse.success("Đã xoá vĩnh viễn"));
+    }
+
+    @GetMapping("/trash")
+    public ResponseEntity<ApiResponse<List<FileResponse>>> getTrashFiles(
+            @RequestParam(required = false) String parentId
+    ) {
+        String userId = getCurrentUserId();
+        List<FileResponse> files = fileStorageService.getTrashFiles(userId, parentId);
+        return ResponseEntity.ok(ApiResponse.success(files));
+    }
+
+    @PostMapping("/{id}/copy")
+    public ResponseEntity<ApiResponse<FileResponse>> copyFile(@PathVariable String id) {
+        try {
+            String userId = getCurrentUserId();
+            FileResponse response = fileStorageService.copyFile(id, userId);
+            return ResponseEntity.ok(ApiResponse.success(response));
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            // Xử lý exception IO/Crypto
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+
     // AVATAR
     /**
      * API XEM/TẢI FILE TỪ GRIDFS
@@ -335,6 +449,6 @@ public class FileController {
         if (auth != null && auth.getPrincipal() instanceof UserDetailsImpl) {
             return ((UserDetailsImpl) auth.getPrincipal()).getId();
         }
-        throw new RuntimeException("Unauthorized: Không tìm thấy thông tin người dùng");
+        throw new AppException(AppErrorCode.USER_NOT_FOUND);
     }
 }

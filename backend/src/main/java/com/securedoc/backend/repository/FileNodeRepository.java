@@ -1,6 +1,7 @@
 package com.securedoc.backend.repository;
 
 import com.securedoc.backend.entity.FileNode;
+import com.securedoc.backend.enums.EFileStatus;
 import com.securedoc.backend.enums.EFileType;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.repository.Aggregation;
@@ -8,6 +9,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,35 +20,38 @@ public interface FileNodeRepository extends MongoRepository<FileNode, String> {
 
     Optional<FileNode> findByIdAndIsDeletedFalse(String id);
 
-    boolean existsByParentIdAndNameAndIsDeletedFalse(String parentId, String name);
+    boolean existsByParentIdAndNameAndOwnerIdAndIsDeletedFalse(String parentId, String name, String ownerId);
 
     List<FileNode> findAllByAncestorsContaining(String folderId);
 
     // --- CẬP NHẬT QUERY BẢO MẬT (Dùng Enum) ---
 
-    // Tìm file user được phép thấy (Owner OR Public != PRIVATE OR Shared)
+    // 1. Dùng cho "Lãnh chúa" (Lấy tất cả, không cần check quyền từng file)
+    List<FileNode> findAllByParentIdAndIsDeletedFalse(String parentId, Sort sort);
+
+    // 2. Dùng cho "Khách" (Lọc kỹ: Chính chủ OR Public OR Được share)
     @Query("{ " +
             "'parentId': ?0, " +
             "'isDeleted': false, " +
             "$or: [ " +
-            "{ 'ownerId': ?1 }, " +
-            "{ 'publicAccess': { $ne: 'PRIVATE' } }, " + // ne = Not Equal
-            "{ 'permissions': { $elemMatch: { 'userId': ?1 } } } " +
+            "{ 'ownerId': ?1 }, " + // File của chính Guest tạo trong folder này
+            "{ 'publicAccess': { $ne: 'PRIVATE' } }, " + // File công khai
+            "{ 'permissions': { $elemMatch: { 'userId': ?1 } } } " + // File được share riêng
             "] " +
             "}")
-    List<FileNode> findByParentIdAndUserAccess(String parentId, String userId);
+    List<FileNode> findByParentIdAndUserAccess(String parentId, String userId, Sort sort);
 
-    // Kiểm tra quyền truy cập 1 file cụ thể
-    @Query("{ " +
-            "'_id': ?0, " +
-            "'isDeleted': false, " +
-            "$or: [ " +
-            "{ 'ownerId': ?1 }, " +
-            "{ 'publicAccess': { $ne: 'PRIVATE' } }, " +
-            "{ 'permissions': { $elemMatch: { 'userId': ?1 } } } " +
-            "] " +
-            "}")
-    Optional<FileNode> findByIdAndUserAccess(String id, String userId);
+//    // Kiểm tra quyền truy cập 1 file cụ thể
+//    @Query("{ " +
+//            "'_id': ?0, " +
+//            "'isDeleted': false, " +
+//            "$or: [ " +
+//            "{ 'ownerId': ?1 }, " +
+//            "{ 'publicAccess': { $ne: 'PRIVATE' } }, " +
+//            "{ 'permissions': { $elemMatch: { 'userId': ?1 } } } " +
+//            "] " +
+//            "}")
+//    Optional<FileNode> findByIdAndUserAccess(String id, String userId);
 
     // ==========================================
     // --- THÊM MỚI CHO DASHBOARD ---
@@ -74,8 +79,39 @@ public interface FileNodeRepository extends MongoRepository<FileNode, String> {
     List<FileNode> findAllFoldersByOwnerId(String ownerId);
 
     // Tìm folder theo parent và tên (để check trùng khi upload folder)
-    Optional<FileNode> findByParentIdAndNameAndTypeAndIsDeletedFalse(String parentId, String name, EFileType type);
+    Optional<FileNode> findByParentIdAndNameAndTypeAndOwnerIdAndIsDeletedFalse(String parentId, String name, EFileType type, String ownerId);
 
     // Hàm kiểm tra trùng tên: Tìm node cùng cha, cùng tên, nhưng KHÁC ID
     boolean existsByParentIdAndNameAndIsDeletedFalseAndIdNot(String parentId, String name, String id);
+
+    // Tìm tất cả các node là con cháu của folderId (dựa trên ancestors chứa folderId)
+    List<FileNode> findAllByAncestorsContainingAndIsDeletedFalse(String ancestorId);
+
+    // Kiểm tra tồn tại (Dùng khi Khôi phục để check folder cha cũ còn sống không)
+    boolean existsByIdAndIsDeletedFalse(String id);
+
+    // Tìm file trong thùng rác ở cấp Root (để hiển thị danh sách thùng rác ban đầu)
+    // parentId = null nghĩa là file này đã bị cắt khỏi cha cũ
+    List<FileNode> findByOwnerIdAndIsDeletedTrueAndParentIdIsNull(String ownerId, Sort sort);
+
+    // Tìm file trong thùng rác ở cấp Con (để hiển thị khi click vào folder trong thùng rác)
+    List<FileNode> findByParentIdAndIsDeletedTrue(String parentId);
+
+    @Query("{ 'permissions': { $elemMatch: { 'userId': ?0 } }, 'ownerId': { $ne: ?0 }, 'isDeleted': false }")
+    List<FileNode> findAllSharedWithUser(String userId);
+
+    List<FileNode> findByStatusAndCreatedAtBefore(EFileStatus status, LocalDateTime date);
+
+    // [MỚI] Lấy danh sách ID các thư mục nằm ngay tại Root của User (để dùng cho query ancestors)
+    @Query(value = "{ 'ownerId': ?0, 'parentId': null, 'type': 'FOLDER', 'isDeleted': false }", fields = "{ '_id': 1 }")
+    List<FileNode> findRootFolderIdsByOwnerId(String userId);
+
+    /**
+     * Tìm các Node GỐC trong thùng rác đã quá hạn
+     * Điều kiện:
+     * 1. isDeleted = true
+     * 2. parentId = null (Chỉ lấy root của thùng rác để tránh trùng lặp đệ quy)
+     * 3. trashedAt < thresholdTime
+     */
+    List<FileNode> findByIsDeletedTrueAndParentIdIsNullAndTrashedAtBefore(LocalDateTime thresholdTime);
 }

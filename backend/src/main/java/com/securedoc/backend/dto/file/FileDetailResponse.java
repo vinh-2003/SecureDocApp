@@ -1,5 +1,6 @@
 package com.securedoc.backend.dto.file;
 
+import com.securedoc.backend.dto.response.UserPermissions;
 import com.securedoc.backend.enums.EFileType;
 import com.securedoc.backend.enums.EPublicAccess;
 import lombok.Builder;
@@ -33,6 +34,8 @@ public class FileDetailResponse {
     // --- THÔNG TIN QUYỀN HẠN ---
     private EPublicAccess publicAccess;
     private List<PermissionDetail> sharedWith; // Danh sách người được chia sẻ
+
+    private UserPermissions permissions;
 
     // Inner DTO rút gọn cho User (tránh lộ password/role)
     @Data

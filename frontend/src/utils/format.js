@@ -23,3 +23,11 @@ export const formatDate = (dateString) => {
         minute: '2-digit'
     });
 };
+
+// Hàm format ngày tháng ngắn gọn
+export const formatDateShort = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    // Format: DD/MM/YYYY
+    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};

@@ -2,13 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import fileService from '../../services/fileService';
 import userService from '../../services/userService';
-import { formatDate, formatBytes } from '../../utils/format';
-// Thêm FaList, FaThLarge
+import { toast } from 'react-toastify';
 import { 
-  FaFileAlt, FaFilePdf, FaFileWord, FaFileImage, FaFolder, 
-  FaArrowLeft, FaTimes, FaFileExcel, FaSearch, FaList, FaThLarge 
+    FaArrowLeft, FaList, FaThLarge, FaTimes, FaExchangeAlt, FaTrash,
+    FaFolder, FaFilePdf, FaFileWord, FaFileAlt, FaFileImage, FaFileExcel
 } from 'react-icons/fa';
+
 import Loading from '../../components/Loading';
+import FileExplorer from '../../components/FileExplorer/FileExplorer'; // Import Component Mới
+import ItemContextMenu from '../../components/Dashboard/ItemContextMenu'; 
+import MoveFileModal from '../../components/Dashboard/MoveFileModal';
+import DeleteConfirmModal from '../../components/Dashboard/DeleteConfirmModal';
+
+import { useFileSelection } from '../../hooks/useFileSelection'; // Import Hook Mới
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -26,8 +32,21 @@ const SearchPage = () => {
       folderName: ''
   });
 
+  // --- STATE TƯƠNG TÁC (Giống Dashboard) ---
+  const [itemMenu, setItemMenu] = useState({ visible: false, x: 0, y: 0, file: null });
+  
+  // State Modals
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [filesToDelete, setFilesToDelete] = useState([]);
+
   // Biến này dùng để render UI (Filter Chips)
   const currentParams = Object.fromEntries([...searchParams]);
+
+  // --- SỬ DỤNG CUSTOM HOOK ---
+  const { 
+      selectedItems, toggleSelection, selectRange, selectAll, clearSelection, setLastSelectedIndex
+  } = useFileSelection(results);
 
   // 1. USE EFFECT: SEARCH DATA (Khi URL đổi)
   useEffect(() => {
@@ -119,6 +138,14 @@ const SearchPage = () => {
       }
   };
 
+  useEffect(() => {
+    const handleClick = () => {
+        setItemMenu({ ...itemMenu, visible: false });
+    };
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [itemMenu]);
+
   // Helper Labels
   const getFilterLabel = (key, value) => {
     if (key === 'fileType') return `Loại: ${value === 'FOLDER' ? 'Thư mục' : '.' + value.toUpperCase()}`;
@@ -131,9 +158,10 @@ const SearchPage = () => {
     return '';
   };
 
-  // Helper Icons (Cập nhật để hỗ trợ size lớn cho Grid view)
+  // Helper Icons (Đồng bộ style với Dashboard)
   const getFileIcon = (type, extension, isLarge = false) => {
-    const sizeClass = isLarge ? "text-5xl" : "text-xl";
+    // Dashboard dùng text-5xl cho Grid và text-2xl cho List
+    const sizeClass = isLarge ? "text-5xl mb-2" : "text-2xl"; 
     
     if (type === 'FOLDER') return <FaFolder className={`text-yellow-500 ${sizeClass}`} />;
     
@@ -141,15 +169,106 @@ const SearchPage = () => {
     if (ext === 'pdf') return <FaFilePdf className={`text-red-500 ${sizeClass}`} />;
     if (['doc', 'docx'].includes(ext)) return <FaFileWord className={`text-blue-500 ${sizeClass}`} />;
     if (['xls', 'xlsx'].includes(ext)) return <FaFileExcel className={`text-green-600 ${sizeClass}`} />;
-    if (['jpg', 'png'].includes(ext)) return <FaFileImage className={`text-purple-500 ${sizeClass}`} />;
+    if (['jpg', 'png', 'jpeg'].includes(ext)) return <FaFileImage className={`text-purple-500 ${sizeClass}`} />;
     
     return <FaFileAlt className={`text-gray-400 ${sizeClass}`} />;
   };
 
-  // Handler click item
-  const handleItemClick = (file) => {
-    if(file.type === 'FOLDER') navigate(`/folders/${file.id}`);
-    else console.log("Xem file", file.id);
+  const handleFileClick = (file) => {
+      
+      // Kiểm tra xem file có hỗ trợ chế độ Đọc sách không
+      // (Backend đã hỗ trợ tách trang cho PDF và DOCX/DOC)
+      const isViewable = 
+          file.mimeType === 'application/pdf' || 
+          file.name.toLowerCase().endsWith('.docx') ||
+          file.name.toLowerCase().endsWith('.doc');
+
+      if (isViewable) {
+          // NẾU XEM ĐƯỢC -> CHUYỂN TRANG
+          navigate(`/file/view/${file.id}`);
+      } else {
+          // NẾU KHÔNG -> GỌI HÀM DOWNLOAD CŨ
+          handleDownload(file); 
+      }
+  };
+
+  // --- HANDLERS TỪ FILE EXPLORER GỬI LÊN ---
+  
+  // 1. Xử lý chọn file (Wrapper cho Hook)
+  const handleSelect = (file, index, multi, range) => {
+      if (range) {
+          selectRange(index, results);
+      } else {
+          toggleSelection(file, multi);
+          setLastSelectedIndex(index);
+      }
+  };
+
+  // 2. Xử lý mở file (Navigation)
+  const handleNavigate = (file) => {
+      if (file.type === 'FOLDER') {
+          navigate(`/folders/${file.id}`);
+      } else {
+          // Logic xem/tải
+          if (['pdf', 'doc', 'docx'].some(ext => file.extension?.includes(ext) || file.mimeType?.includes(ext))) {
+              navigate(`/file/view/${file.id}`);
+          } else {
+              handleDownload(file);
+          }
+      }
+  };
+
+  // 3. Xử lý Menu Chuột phải
+  const handleContextMenu = (e, file) => {
+      e.preventDefault();
+      setItemMenu({ visible: true, x: e.pageX, y: e.pageY, file: file });
+  };
+
+  // 4. Xử lý nút 3 chấm
+  const handleMenuBtnClick = (e, file) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setItemMenu({ visible: true, x: rect.left, y: rect.bottom, file: file });
+  };
+
+  // 5. Action Menu
+  const handleMenuAction = (action, file) => {
+      setItemMenu({ ...itemMenu, visible: false });
+      switch (action) {
+          case 'MOVE':
+              clearSelection(); // Reset chọn cũ
+              toggleSelection(file, true); // Chọn file này
+              setShowMoveModal(true);
+              break;
+          case 'TRASH':
+              setFilesToDelete([file]);
+              setShowDeleteModal(true);
+              break;
+          case 'DOWNLOAD':
+              handleDownload(file);
+              break;
+          default: break;
+      }
+  };
+
+  // --- 1. HÀM XỬ LÝ TẢI XUỐNG ---
+  const handleDownload = async (file) => {
+    const toastId = toast.loading(`Đang chuẩn bị tải: ${file.name}...`);
+    try {
+      const response = await fileService.downloadFile(file.id);
+      const url = window.URL.createObjectURL(new Blob([response]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', file.name);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.dismiss(toastId);
+      toast.success("Đã tải xuống thành công!");
+    } catch (error) {
+      toast.dismiss(toastId);
+      toast.error("Lỗi khi tải file.");
+    }
   };
 
   return (
@@ -230,80 +349,53 @@ const SearchPage = () => {
           </div>
       </div>
 
-      {/* 4. RESULTS DISPLAY */}
-      {loading ? <Loading /> : (
-        <>
-            {results.length > 0 ? (
-                <>
-                    {/* --- LIST VIEW --- */}
-                    {viewMode === 'list' && (
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden animate-fade-in">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-gray-50 text-gray-600 text-xs uppercase font-semibold">
-                                <tr>
-                                    <th className="px-6 py-3 border-b">Tên</th>
-                                    <th className="px-6 py-3 border-b">Loại</th>
-                                    <th className="px-6 py-3 border-b">Kích thước</th>
-                                    <th className="px-6 py-3 border-b">Ngày sửa đổi</th>
-                                </tr>
-                                </thead>
-                                <tbody className="text-gray-700 text-sm">
-                                {results.map((file) => (
-                                    <tr key={file.id} onClick={() => handleItemClick(file)} className="hover:bg-blue-50 cursor-pointer border-b last:border-b-0 transition">
-                                    <td className="px-6 py-3 flex items-center gap-3">
-                                        {getFileIcon(file.type, file.extension)}
-                                        <div className="overflow-hidden">
-                                            <span className="font-medium truncate block max-w-md text-gray-800" title={file.name}>{file.name || file.title}</span>
-                                            {file.ancestors && <span className="text-[10px] text-gray-400">/{file.ancestors.join('/')}</span>}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-3 uppercase text-xs font-semibold text-gray-500">{file.extension || 'FOLDER'}</td>
-                                    <td className="px-6 py-3 text-xs">{file.type === 'FOLDER' ? '--' : formatBytes(file.size)}</td>
-                                    <td className="px-6 py-3">{formatDate(file.updatedAt)}</td>
-                                    </tr>
-                                ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {/* --- GRID VIEW --- */}
-                    {viewMode === 'grid' && (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-fade-in">
-                            {results.map((file) => (
-                                <div 
-                                    key={file.id} 
-                                    onClick={() => handleItemClick(file)}
-                                    className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md cursor-pointer flex flex-col items-center text-center transition group relative"
-                                >
-                                    <div className="mt-2 mb-3 transform group-hover:scale-110 transition duration-200">
-                                        {/* Icon lớn cho Grid */}
-                                        {getFileIcon(file.type, file.extension, true)}
-                                    </div>
-                                    
-                                    <p className="text-sm font-medium text-gray-800 truncate w-full px-1 mb-1" title={file.name || file.title}>
-                                        {file.name || file.title}
-                                    </p>
-                                    
-                                    <p className="text-xs text-gray-500">
-                                        {file.type === 'FOLDER' ? 'Thư mục' : formatBytes(file.size)}
-                                    </p>
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                        {formatDate(file.updatedAt).split(' ')[0]}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </>
-            ) : (
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-10 flex flex-col items-center justify-center text-gray-500 animate-fade-in">
-                    <FaSearch className="text-4xl text-gray-200 mb-3" />
-                    <p>Không tìm thấy tài liệu nào khớp với tiêu chí.</p>
+      {/* TOOLBAR */}
+            {selectedItems.length > 0 && (
+                <div className="flex items-center gap-3 bg-blue-50 p-2 rounded-lg border border-blue-200 w-full animate-fade-in">
+                    <span className="font-bold text-blue-800 text-sm ml-2">{selectedItems.length} đã chọn</span>
+                    <button onClick={clearSelection} className="text-xs text-blue-600 hover:underline">Bỏ chọn</button>
+                    <div className="flex-1 text-right gap-2 flex justify-end">
+                        <button onClick={() => setShowMoveModal(true)} className="flex items-center gap-2 px-3 py-1 bg-white border rounded text-sm hover:bg-gray-50"><FaExchangeAlt/> Di chuyển</button>
+                        <button onClick={() => { setFilesToDelete(selectedItems); setShowDeleteModal(true); }} className="flex items-center gap-2 px-3 py-1 bg-white border border-red-200 text-red-600 rounded text-sm hover:bg-red-50"><FaTrash/> Xóa</button>
+                    </div>
                 </div>
             )}
-        </>
-      )}
+
+        {/* --- SỬ DỤNG COMPONENT TÁI SỬ DỤNG --- */}
+        {loading ? <Loading /> : (
+            <FileExplorer 
+                files={results}
+                viewMode={viewMode}
+                selectedItems={selectedItems}
+                onSelect={handleSelect}
+                onSelectAll={selectAll}
+                onNavigate={handleNavigate}
+                onContextMenu={handleContextMenu}
+                onMenuAction={handleMenuBtnClick}
+                showOwner={true} // Bật cột Owner cho trang tìm kiếm
+            />
+        )}
+
+        {/* Modals & Menus */}
+        <ItemContextMenu 
+            menuState={itemMenu}
+            onClose={() => setItemMenu({ ...itemMenu, visible: false })}
+            onAction={handleMenuAction}
+        />
+        <MoveFileModal 
+            isOpen={showMoveModal}
+            onClose={() => setShowMoveModal(false)}
+            selectedItems={selectedItems}
+            onSuccess={() => { /* Reload data */ }}
+        />
+
+      <DeleteConfirmModal 
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={() => { /* Logic delete */ }}
+          count={filesToDelete.length}
+          isPermanent={false}
+      />
     </div>
   );
 };

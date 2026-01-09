@@ -39,7 +39,8 @@ public class SecurityConfig {
     private PasswordEncoder passwordEncoder;
 
     private final String[] PUBLIC_ENDPOINTS = {
-            "/api/files/view/**"
+            "/api/files/view/**",
+            "/ws/**"
     };
 
     @Bean

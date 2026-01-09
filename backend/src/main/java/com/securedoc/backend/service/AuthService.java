@@ -158,7 +158,7 @@ public class AuthService {
 
         // Tìm Role trong DB, nếu không có thì báo lỗi (Lỗi hệ thống nghiêm trọng nếu thiếu Role)
         Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-                .orElseThrow(() -> new RuntimeException("Error: Role 'ROLE_USER' is not found in Database. Check DatabaseInitializer."));
+                .orElseThrow(() -> new AppException(AppErrorCode.ROLE_NOT_FOUND));
 
         roles.add(userRole);
         user.setRoles(roles);
@@ -337,7 +337,7 @@ public class AuthService {
 
         Set<Role> roles = new HashSet<>();
         Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-                .orElseThrow(() -> new RuntimeException("Error: Role User not found."));
+                .orElseThrow(() -> new AppException(AppErrorCode.ROLE_NOT_FOUND));
         roles.add(userRole);
         user.setRoles(roles);
 

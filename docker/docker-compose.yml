@@ -56,8 +56,8 @@ services:
   mongodb:
     image: mongo:6.0
     container_name: doc_mongodb
-    ports:
-      - "27099:27017"
+    # ports:
+    #   - "27099:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=admin_password
@@ -93,8 +93,8 @@ services:
       context: . # Context ở đây là thư mục 'docker' hiện tại
       dockerfile: Dockerfile.elasticsearch
     container_name: doc_elasticsearch
-    ports:
-      - "9299:9200"
+    # ports:
+    #   - "9299:9200"
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false

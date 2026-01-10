@@ -1,6 +1,57 @@
 version: '3.8'
 
 services:
+  # ==========================================
+  # BACKEND (Spring Boot)
+  # ==========================================
+  backend:
+    container_name: doc_backend
+    build:
+      context: ../backend # Trỏ ra thư mục backend bên ngoài folder docker
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8888"
+    environment:
+      # Ghi đè cấu hình kết nối MongoDB (Dùng tên service 'mongodb', port nội bộ 27017)
+      - SPRING_DATA_MONGODB_URI=mongodb://admin:admin_password@mongodb:27017/doc_management_db?authSource=admin
+      
+      # Ghi đè cấu hình kết nối Elasticsearch (Dùng tên service 'elasticsearch', port nội bộ 9200)
+      - SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
+      
+      # Các cấu hình khác giữ nguyên hoặc lấy từ application.yml
+      - APP_FRONTEND_URL=http://localhost:3030
+    depends_on:
+      - mongodb
+      - elasticsearch
+    networks:
+      - doc_network
+    restart: always
+
+  # ==========================================
+  # FRONTEND (React + Nginx)
+  # ==========================================
+  frontend:
+    container_name: doc_frontend
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        # Biến này được bake vào code React lúc build
+        # Lưu ý: Browser của người dùng gọi API, nên vẫn trỏ về localhost máy host (hoặc IP server/domain thật)
+        - REACT_APP_API_URL=http://localhost:8888/api 
+        - REACT_APP_BACKEND_URL=http://localhost:8888
+        - REACT_APP_GOOGLE_CLIENT_ID=352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com
+    ports:
+      - "3030:80" # Map port 3030 máy host vào port 80 Nginx
+    depends_on:
+      - backend
+    networks:
+      - doc_network
+
+  # ==========================================
+  # INFRASTRUCTURE (Existing Services)
+  # ==========================================
+  
   # MongoDB: Host 27099 -> Container 27017
   mongodb:
     image: mongo:6.0
@@ -23,20 +74,14 @@ services:
     ports:
       - "8099:8081"
     environment:
-      # 1. Cấu hình đăng nhập trên TRÌNH DUYỆT (Web Login)
       - ME_CONFIG_BASICAUTH_USERNAME=admin
       - ME_CONFIG_BASICAUTH_PASSWORD=admin_password
-
-      # 2. Cấu hình kết nối tới SERVER MONGODB
       - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
-
-      # 3. Tài khoản Admin của MONGODB (Phải trùng với service mongodb bên trên)
       - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
       - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
       - ME_CONFIG_MONGODB_ADMINPASSWORD=admin_password
-      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin # Quan trọng: Xác thực qua db admin
-
+      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin
     depends_on:
       - mongodb
     networks:
@@ -45,7 +90,7 @@ services:
   # Elasticsearch: Host 9299 -> Container 9200
   elasticsearch:
     build:
-      context: .
+      context: . # Context ở đây là thư mục 'docker' hiện tại
       dockerfile: Dockerfile.elasticsearch
     container_name: doc_elasticsearch
     ports:
@@ -53,7 +98,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms1g -Xmx1g" # Tăng RAM lên 1GB vì vi_analyzer tốn RAM hơn
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:

@@ -1,6 +1,6 @@
 // src/components/Dashboard/DeleteConfirmModal.jsx
 import React from 'react';
-import { FaTrashAlt, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
+import { FaTrashAlt, FaExclamationTriangle } from 'react-icons/fa';
 
 const DeleteConfirmModal = ({ 
     isOpen, 

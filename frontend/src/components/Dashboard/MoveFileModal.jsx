@@ -1,7 +1,7 @@
 // src/components/Dashboard/MoveFileModal.jsx
 import React, { useState, useEffect } from 'react';
 import fileService from '../../services/fileService';
-import { FaFolder, FaArrowLeft, FaHome, FaCheck } from 'react-icons/fa';
+import { FaFolder, FaHome, FaCheck } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
 const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
@@ -20,6 +20,7 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
             setBreadcrumbs([{ id: null, name: 'Thư mục gốc' }]);
             fetchFolders(null);
         }
+        // eslint-disable-next-line
     }, [isOpen]);
 
     // Hàm lấy danh sách folder (chỉ lấy folder, không lấy file)

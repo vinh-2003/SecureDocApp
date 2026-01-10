@@ -30,7 +30,7 @@ export const useMenuPosition = (ref, x, y, visible) => {
         if (newLeft < 0) newLeft = 10; // Cách mép trái 10px
 
         setPosition({ top: newTop, left: newLeft });
-
+        // eslint-disable-next-line
     }, [x, y, visible]); // Chạy lại khi tọa độ hoặc trạng thái visible thay đổi
 
     return position;

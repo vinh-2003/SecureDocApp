@@ -7,13 +7,16 @@ import { toast } from 'react-toastify';
 export const useFileWebSocket = (userId, onFileUpdate) => {
     const clientRef = useRef(null);
 
+    // 1. Lấy URL từ biến môi trường, fallback về localhost nếu không tìm thấy
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8888';
+
     useEffect(() => {
         if (!userId) return;
 
         // Cấu hình STOMP Client
         const client = new Client({
             // Đường dẫn kết nối (dùng SockJS wrapper)
-            webSocketFactory: () => new SockJS('http://localhost:8888/ws'),
+            webSocketFactory: () => new SockJS(`${backendUrl}/ws`),
             
             // Khi kết nối thành công
             onConnect: () => {
@@ -50,5 +53,5 @@ export const useFileWebSocket = (userId, onFileUpdate) => {
                 clientRef.current.deactivate();
             }
         };
-    }, [userId, onFileUpdate]);
+    }, [userId, onFileUpdate, backendUrl]);
 };

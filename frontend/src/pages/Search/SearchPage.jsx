@@ -159,6 +159,7 @@ const SearchPage = () => {
   };
 
   // Helper Icons (Đồng bộ style với Dashboard)
+  // eslint-disable-next-line
   const getFileIcon = (type, extension, isLarge = false) => {
     // Dashboard dùng text-5xl cho Grid và text-2xl cho List
     const sizeClass = isLarge ? "text-5xl mb-2" : "text-2xl"; 
@@ -174,6 +175,7 @@ const SearchPage = () => {
     return <FaFileAlt className={`text-gray-400 ${sizeClass}`} />;
   };
 
+  // eslint-disable-next-line
   const handleFileClick = (file) => {
       
       // Kiểm tra xem file có hỗ trợ chế độ Đọc sách không

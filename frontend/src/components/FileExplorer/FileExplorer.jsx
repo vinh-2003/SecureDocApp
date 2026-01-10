@@ -1,9 +1,9 @@
 import React, { useRef } from 'react';
 import { 
-    FaList, FaThLarge, FaFolder, FaFileAlt, FaFilePdf, FaFileWord, FaFileExcel, 
+    FaFolder, FaFileAlt, FaFilePdf, FaFileWord, FaFileExcel, 
     FaFileImage, FaCheckSquare, FaSquare, FaEllipsisV, FaUserCircle 
 } from 'react-icons/fa';
-import { formatBytes, formatDate } from '../../utils/format';
+import { formatDate } from '../../utils/format';
 
 // Tách icon helper ra dùng chung
 export const getFileIcon = (type, extension, isLarge = false) => {
@@ -103,7 +103,7 @@ const FileExplorer = ({
                                     {showOwner && (
                                         <td className="px-6 py-4 hidden sm:table-cell">
                                             <div className="flex items-center gap-2">
-                                                {file.ownerAvatar ? <img src={file.ownerAvatar} className="w-6 h-6 rounded-full"/> : <FaUserCircle className="text-gray-300 w-6 h-6"/>}
+                                                {file.ownerAvatar ? <img src={file.ownerAvatar} alt={file.ownerName} className="w-6 h-6 rounded-full"/> : <FaUserCircle className="text-gray-300 w-6 h-6"/>}
                                                 <span className="truncate max-w-[100px]">{file.ownerName || 'Unknown'}</span>
                                             </div>
                                         </td>

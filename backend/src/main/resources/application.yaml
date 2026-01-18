@@ -24,16 +24,16 @@ spring:
   # --- 1. MONGODB ---
   data:
     mongodb:
-      # Kết nối qua port 27099 (Đã map trong Docker)
-      uri: mongodb://admin:admin_password@localhost:27099/doc_management_db?authSource=admin
+      uri: mongodb://admin:admin_password@localhost:27017/doc_management_db?authSource=admin
       auto-index-creation: true # Tự động tạo index (@Indexed)
 
   # --- 2. ELASTICSEARCH ---
   elasticsearch:
-    # Kết nối qua port 9299 (Đã map trong Docker)
-    uris: http://localhost:9299
+    uris: http://localhost:9200
     socket-timeout: 10s
     connection-timeout: 5s
+    username: elastic
+    password: dyLuGaROSNhYQ9Jvq9vD
 
   # --- 3. FILE UPLOAD LIMITS ---
   servlet:

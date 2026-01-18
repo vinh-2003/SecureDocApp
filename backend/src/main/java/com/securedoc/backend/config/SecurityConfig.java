@@ -4,6 +4,7 @@ import com.securedoc.backend.security.jwt.AuthEntryPointJwt;
 import com.securedoc.backend.security.jwt.JwtAuthenticationFilter;
 import com.securedoc.backend.security.services.UserDetailsServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -42,6 +43,9 @@ public class SecurityConfig {
             "/api/files/view/**",
             "/ws/**"
     };
+
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     @Bean
     public JwtAuthenticationFilter authenticationJwtTokenFilter() {
@@ -86,7 +90,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:3030"));
+        configuration.setAllowedOrigins(List.of(frontendUrl));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);

@@ -14,7 +14,6 @@ ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 COPY package.json .
 COPY package-lock.json . 
-# Nếu bạn dùng yarn thì copy yarn.lock
 
 RUN npm install
 

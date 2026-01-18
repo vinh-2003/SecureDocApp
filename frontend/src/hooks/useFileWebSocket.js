@@ -8,7 +8,7 @@ export const useFileWebSocket = (userId, onFileUpdate) => {
     const clientRef = useRef(null);
 
     // 1. Lấy URL từ biến môi trường, fallback về localhost nếu không tìm thấy
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8888';
+    const backendUrl = process.env.REACT_APP_BACKEND_URL;
 
     useEffect(() => {
         if (!userId) return;
@@ -20,7 +20,7 @@ export const useFileWebSocket = (userId, onFileUpdate) => {
             
             // Khi kết nối thành công
             onConnect: () => {
-                console.log('Connected to WebSocket!');
+                // console.log('Connected to WebSocket!');
 
                 // Đăng ký nhận tin tại topic riêng của user này
                 client.subscribe(`/topic/files/${userId}`, (message) => {

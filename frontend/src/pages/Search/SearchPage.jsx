@@ -1,405 +1,517 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useContext } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import { FaArrowLeft } from 'react-icons/fa';
+
+// Services
 import fileService from '../../services/fileService';
 import userService from '../../services/userService';
-import { toast } from 'react-toastify';
-import { 
-    FaArrowLeft, FaList, FaThLarge, FaTimes, FaExchangeAlt, FaTrash,
-    FaFolder, FaFilePdf, FaFileWord, FaFileAlt, FaFileImage, FaFileExcel
-} from 'react-icons/fa';
 
-import Loading from '../../components/Loading';
-import FileExplorer from '../../components/FileExplorer/FileExplorer'; // Import Component Mới
-import ItemContextMenu from '../../components/Dashboard/ItemContextMenu'; 
-import MoveFileModal from '../../components/Dashboard/MoveFileModal';
-import DeleteConfirmModal from '../../components/Dashboard/DeleteConfirmModal';
+// Context
+import { AuthContext } from '../../context/AuthContext';
 
-import { useFileSelection } from '../../hooks/useFileSelection'; // Import Hook Mới
+// Components
+import { ViewModeToggle, FilterChips, Loading } from '../../components/Common';
+import {
+    FileListView,
+    FileGridView,
+    EmptyState,
+    ColumnToggle,
+    BatchActionBar,
+    BATCH_ACTIONS
+} from '../../components/FileExplorer';
+import {
+    ItemContextMenu,
+    MoveFileModal,
+    DeleteConfirmModal,
+    RenameModal,
+    DescriptionModal,
+    FileInfoModal,
+    ShareModal,
+    ConfirmRevokeModal
+} from '../../components/Dashboard';
+
+// Hooks
+import {
+    useContextMenu,
+    useFileClick,
+    useFileSelection,
+    useFileActions,
+    useFileIcon
+} from '../../hooks';
+
+// Constants
+import { SEARCH_COLUMNS, SEARCH_VISIBLE_COLUMNS } from '../../constants';
 
 const SearchPage = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  
-  // STATE CHO CHẾ ĐỘ XEM: 'list' | 'grid'
-  const [viewMode, setViewMode] = useState('list');
+    // 1. ROUTER & CONTEXT
+    const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
 
-  // --- STATE ĐỂ LƯU TÊN HIỂN THỊ (Resolve từ ID) ---
-  const [resolvedNames, setResolvedNames] = useState({
-      ownerName: '',
-      folderName: ''
-  });
+    const { user } = useContext(AuthContext);
+    const currentUserId = user?.userId;
 
-  // --- STATE TƯƠNG TÁC (Giống Dashboard) ---
-  const [itemMenu, setItemMenu] = useState({ visible: false, x: 0, y: 0, file: null });
-  
-  // State Modals
-  const [showMoveModal, setShowMoveModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [filesToDelete, setFilesToDelete] = useState([]);
+    // 2. LOCAL STATE
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [viewMode, setViewMode] = useState('list');
+    const [visibleColumns, setVisibleColumns] = useState(SEARCH_VISIBLE_COLUMNS);
 
-  // Biến này dùng để render UI (Filter Chips)
-  const currentParams = Object.fromEntries([...searchParams]);
+    // State lưu tên đã resolve từ ID
+    const [resolvedNames, setResolvedNames] = useState({
+        ownerName: '',
+        folderName: ''
+    });
 
-  // --- SỬ DỤNG CUSTOM HOOK ---
-  const { 
-      selectedItems, toggleSelection, selectRange, selectAll, clearSelection, setLastSelectedIndex
-  } = useFileSelection(results);
+    // Lấy params hiện tại
+    const currentParams = useMemo(() =>
+        Object.fromEntries([...searchParams]),
+        [searchParams]
+    );
 
-  // 1. USE EFFECT: SEARCH DATA (Khi URL đổi)
-  useEffect(() => {
-    const fetchSearchResults = async () => {
-      setLoading(true);
-      try {
-        // LỌC BỎ các field DisplayName nếu lỡ có lọt vào, không gửi lên API
-        const { ownerDisplayName, locationDisplayName, ...cleanParams } = Object.fromEntries([...searchParams]);
-        
-        const apiParams = { ...cleanParams, page: 0, size: 50 };
-        const res = await fileService.searchFiles(apiParams);
-        if (res.success) setResults(res.data);
+    // 3. CUSTOM HOOKS
 
-        // --- LOGIC F5: KHÔI PHỤC TÊN TỪ ID ---
-        resolveFilterNames(cleanParams);
+    // Context Menu
+    const {
+        itemMenu,
+        openItemMenu,
+        openItemMenuFromButton,
+        closeItemMenu,
+        closeAllMenus
+    } = useContextMenu();
 
-      } catch (error) { 
-        console.error("Lỗi tìm kiếm:", error); 
-      } finally { 
-        setLoading(false); 
-      }
+    // File Selection
+    const {
+        selectedFiles,
+        isSelected,
+        isAllSelected,
+        selectionCount,
+        toggleSelect,
+        selectSingle,
+        selectWithCtrl,
+        selectWithShift,
+        selectAll,
+        clearSelection,
+        setSelection
+    } = useFileSelection(results);
+
+    // File Icon
+    const { isProcessing, isFailed } = useFileIcon();
+
+    // File Actions - Tận dụng hook đã có (không cần handleRename, handleUpdateDescription từ context)
+    const fileActions = useFileActions({
+        onRefresh: fetchSearchResults,
+        setSelection,
+        // Các hàm này sẽ được xử lý local trong hook
+        handleRename: async (item, newName) => {
+            try {
+                const res = await fileService.renameFile(item.id, newName);
+                if (res.success) {
+                    toast.success("Đổi tên thành công!");
+                    return true;
+                }
+            } catch (error) {
+                toast.error(error.response?.data?.message || "Lỗi khi đổi tên.");
+            }
+            return false;
+        },
+        handleUpdateDescription: async (item, description) => {
+            try {
+                const res = await fileService.updateDescription(item.id, description);
+                if (res.success) {
+                    toast.success("Cập nhật mô tả thành công!");
+                    return true;
+                }
+            } catch (error) {
+                toast.error("Lỗi khi cập nhật mô tả.");
+            }
+            return false;
+        }
+    });
+
+    // File Click
+    const { handleSmartClick, handleDoubleClick: handleDoubleClickBase } = useFileClick({
+        onSingleClick: (e, file, index) => selectSingle(file, index),
+        onDoubleClick: (file) => handleNavigate(file),
+        onCtrlClick: (e, file, index) => selectWithCtrl(e, file, index),
+        onShiftClick: (e, file, index) => selectWithShift(index),
+        clickDelay: 250
+    });
+
+    // 4. HANDLERS
+
+    // Wrapper cho click
+    const handleSmartClickWrapper = (e, file, index) => {
+        if (isProcessing(file) || isFailed(file)) return;
+        handleSmartClick(e, file, index);
     };
-    
-    fetchSearchResults();
-  }, [searchParams]);
 
-  // Hàm phụ: Gọi API lấy tên từ ID (Chỉ gọi khi cần)
-  const resolveFilterNames = async (params) => {
-      const newNames = { ownerName: '', folderName: '' };
-      const promises = [];
-
-      // 1. Resolve Owner Name
-      if (params.ownerId) {
-          // Nếu param có ownerDisplayName (do Header truyền qua state - React Router state) thì dùng luôn
-          // Nhưng ở đây ta đang dùng URL params thuần túy, nên gọi API
-          promises.push(
-              userService.getUserById(params.ownerId)
-                  .then(res => { if(res.success) newNames.ownerName = res.data.fullName || res.data.username; })
-                  .catch(() => newNames.ownerName = params.ownerId) // Fallback hiện ID nếu lỗi
-          );
-      }
-
-      // 2. Resolve Folder Name
-      if (params.locationId) {
-          promises.push(
-              fileService.getFolderInfo(params.locationId) // Hàm gọi API breadcrumb
-                  .then(res => { 
-                      if(res.success && res.data.length > 0) {
-                          // Breadcrumb trả về [Root, ... , CurrentFolder]
-                          // Lấy phần tử cuối cùng là folder hiện tại
-                          const currentFolder = res.data[res.data.length - 1];
-                          newNames.folderName = currentFolder.name;
-                      }
-                  })
-                  .catch(() => newNames.folderName = params.locationId)
-          );
-      }
-
-      if (promises.length > 0) {
-          await Promise.all(promises);
-          setResolvedNames(newNames);
-      } else {
-          setResolvedNames({ ownerName: '', folderName: '' });
-      }
-  };
-
-  // --- XỬ LÝ FILTER CHIPS ---
-  const handleRemoveFilter = (key) => {
-      const newParams = { ...currentParams };
-      // Xóa các key param
-      if (key === 'fileType') delete newParams.fileType;
-      if (key === 'ownerId') delete newParams.ownerId;
-      if (key === 'locationId') delete newParams.locationId;
-      if (key === 'dateRange') { delete newParams.fromDate; delete newParams.toDate; }
-      if (key === 'inTrash') delete newParams.inTrash;
-      
-      // Xóa sạch các key rác nếu có
-      delete newParams.ownerDisplayName;
-      delete newParams.locationDisplayName;
-
-      setSearchParams(newParams);
-  };
-
-  const handleClearAll = () => {
-      if (currentParams.keyword) {
-          setSearchParams({ keyword: currentParams.keyword });
-      } else {
-          setSearchParams({});
-      }
-  };
-
-  useEffect(() => {
-    const handleClick = () => {
-        setItemMenu({ ...itemMenu, visible: false });
+    const handleDoubleClick = (file) => {
+        if (isProcessing(file) || isFailed(file)) return;
+        handleDoubleClickBase(file);
     };
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, [itemMenu]);
 
-  // Helper Labels
-  const getFilterLabel = (key, value) => {
-    if (key === 'fileType') return `Loại: ${value === 'FOLDER' ? 'Thư mục' : '.' + value.toUpperCase()}`;
-    
-    // Dùng state đã fetch được để hiển thị
-    if (key === 'ownerId') return `Người tạo: ${resolvedNames.ownerName || value}`; 
-    if (key === 'locationId') return `Folder: ${resolvedNames.folderName || value}`;
-    
-    if (key === 'inTrash') return 'Trong thùng rác';
-    return '';
-  };
+    // Navigation
+    const handleNavigate = (file) => {
+        if (file.type === 'FOLDER') {
+            navigate(`/folders/${file.id}`);
+        } else {
+            const isViewable =
+                file.mimeType === 'application/pdf' ||
+                file.name?.toLowerCase().endsWith('.docx') ||
+                file.name?.toLowerCase().endsWith('.doc');
 
-  // Helper Icons (Đồng bộ style với Dashboard)
-  // eslint-disable-next-line
-  const getFileIcon = (type, extension, isLarge = false) => {
-    // Dashboard dùng text-5xl cho Grid và text-2xl cho List
-    const sizeClass = isLarge ? "text-5xl mb-2" : "text-2xl"; 
-    
-    if (type === 'FOLDER') return <FaFolder className={`text-yellow-500 ${sizeClass}`} />;
-    
-    const ext = extension?.toLowerCase();
-    if (ext === 'pdf') return <FaFilePdf className={`text-red-500 ${sizeClass}`} />;
-    if (['doc', 'docx'].includes(ext)) return <FaFileWord className={`text-blue-500 ${sizeClass}`} />;
-    if (['xls', 'xlsx'].includes(ext)) return <FaFileExcel className={`text-green-600 ${sizeClass}`} />;
-    if (['jpg', 'png', 'jpeg'].includes(ext)) return <FaFileImage className={`text-purple-500 ${sizeClass}`} />;
-    
-    return <FaFileAlt className={`text-gray-400 ${sizeClass}`} />;
-  };
+            if (isViewable) {
+                navigate(`/file/view/${file.id}`);
+            } else {
+                fileActions.handleDownload(file);
+            }
+        }
+    };
 
-  // eslint-disable-next-line
-  const handleFileClick = (file) => {
-      
-      // Kiểm tra xem file có hỗ trợ chế độ Đọc sách không
-      // (Backend đã hỗ trợ tách trang cho PDF và DOCX/DOC)
-      const isViewable = 
-          file.mimeType === 'application/pdf' || 
-          file.name.toLowerCase().endsWith('.docx') ||
-          file.name.toLowerCase().endsWith('.doc');
+    // Menu Action - Sử dụng fileActions
+    const handleMenuAction = (action, file) => {
+        fileActions.handleMenuAction(action, file, closeAllMenus);
+    };
 
-      if (isViewable) {
-          // NẾU XEM ĐƯỢC -> CHUYỂN TRANG
-          navigate(`/file/view/${file.id}`);
-      } else {
-          // NẾU KHÔNG -> GỌI HÀM DOWNLOAD CŨ
-          handleDownload(file); 
-      }
-  };
+    // Batch Action
+    const handleBatchAction = (actionType) => {
+        if (actionType === BATCH_ACTIONS.MOVE) {
+            fileActions.openMoveModal(selectedFiles);
+        } else if (actionType === BATCH_ACTIONS.DELETE) {
+            fileActions.handleSoftDelete(selectedFiles);
+        }
+    };
 
-  // --- HANDLERS TỪ FILE EXPLORER GỬI LÊN ---
-  
-  // 1. Xử lý chọn file (Wrapper cho Hook)
-  const handleSelect = (file, index, multi, range) => {
-      if (range) {
-          selectRange(index, results);
-      } else {
-          toggleSelection(file, multi);
-          setLastSelectedIndex(index);
-      }
-  };
+    // 5. FILTER LOGIC
 
-  // 2. Xử lý mở file (Navigation)
-  const handleNavigate = (file) => {
-      if (file.type === 'FOLDER') {
-          navigate(`/folders/${file.id}`);
-      } else {
-          // Logic xem/tải
-          if (['pdf', 'doc', 'docx'].some(ext => file.extension?.includes(ext) || file.mimeType?.includes(ext))) {
-              navigate(`/file/view/${file.id}`);
-          } else {
-              handleDownload(file);
-          }
-      }
-  };
+    // Build filters cho FilterChips
+    const filters = useMemo(() => {
+        const list = [];
 
-  // 3. Xử lý Menu Chuột phải
-  const handleContextMenu = (e, file) => {
-      e.preventDefault();
-      setItemMenu({ visible: true, x: e.pageX, y: e.pageY, file: file });
-  };
+        if (currentParams.fileType) {
+            list.push({
+                key: 'fileType',
+                label: `Loại:  ${currentParams.fileType === 'FOLDER' ? 'Thư mục' : '.' + currentParams.fileType.toUpperCase()}`,
+                color: 'blue'
+            });
+        }
 
-  // 4. Xử lý nút 3 chấm
-  const handleMenuBtnClick = (e, file) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setItemMenu({ visible: true, x: rect.left, y: rect.bottom, file: file });
-  };
+        if (currentParams.ownerId) {
+            list.push({
+                key: 'ownerId',
+                label: `Người tạo: ${resolvedNames.ownerName || currentParams.ownerId}`,
+                color: 'purple'
+            });
+        }
 
-  // 5. Action Menu
-  const handleMenuAction = (action, file) => {
-      setItemMenu({ ...itemMenu, visible: false });
-      switch (action) {
-          case 'MOVE':
-              clearSelection(); // Reset chọn cũ
-              toggleSelection(file, true); // Chọn file này
-              setShowMoveModal(true);
-              break;
-          case 'TRASH':
-              setFilesToDelete([file]);
-              setShowDeleteModal(true);
-              break;
-          case 'DOWNLOAD':
-              handleDownload(file);
-              break;
-          default: break;
-      }
-  };
+        if (currentParams.locationId) {
+            list.push({
+                key: 'locationId',
+                label: `Folder: ${resolvedNames.folderName || currentParams.locationId}`,
+                color: 'orange'
+            });
+        }
 
-  // --- 1. HÀM XỬ LÝ TẢI XUỐNG ---
-  const handleDownload = async (file) => {
-    const toastId = toast.loading(`Đang chuẩn bị tải: ${file.name}...`);
-    try {
-      const response = await fileService.downloadFile(file.id);
-      const url = window.URL.createObjectURL(new Blob([response]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', file.name);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      toast.dismiss(toastId);
-      toast.success("Đã tải xuống thành công!");
-    } catch (error) {
-      toast.dismiss(toastId);
-      toast.error("Lỗi khi tải file.");
+        if (currentParams.fromDate || currentParams.toDate) {
+            list.push({
+                key: 'dateRange',
+                label: `${currentParams.fromDate || '.. .'} → ${currentParams.toDate || '... '}`,
+                color: 'green'
+            });
+        }
+
+        if (currentParams.inTrash === 'true') {
+            list.push({
+                key: 'inTrash',
+                label: 'Trong thùng rác',
+                color: 'red'
+            });
+        }
+
+        return list;
+    }, [currentParams, resolvedNames]);
+
+    // Remove filter
+    const handleRemoveFilter = (key) => {
+        const newParams = { ...currentParams };
+
+        if (key === 'fileType') delete newParams.fileType;
+        if (key === 'ownerId') delete newParams.ownerId;
+        if (key === 'locationId') delete newParams.locationId;
+        if (key === 'dateRange') {
+            delete newParams.fromDate;
+            delete newParams.toDate;
+        }
+        if (key === 'inTrash') delete newParams.inTrash;
+
+        // Clean up display names
+        delete newParams.ownerDisplayName;
+        delete newParams.locationDisplayName;
+
+        setSearchParams(newParams);
+    };
+
+    // Clear all filters
+    const handleClearAllFilters = () => {
+        if (currentParams.keyword) {
+            setSearchParams({ keyword: currentParams.keyword });
+        } else {
+            setSearchParams({});
+        }
+    };
+
+    // 6. DATA FETCHING
+
+    // Resolve names from IDs
+    const resolveFilterNames = async (params) => {
+        const newNames = { ownerName: '', folderName: '' };
+        const promises = [];
+
+        if (params.ownerId) {
+            promises.push(
+                userService.getUserById(params.ownerId)
+                    .then(res => {
+                        if (res.success) {
+                            newNames.ownerName = res.data.fullName || res.data.username;
+                        }
+                    })
+                    .catch(() => {
+                        newNames.ownerName = params.ownerId;
+                    })
+            );
+        }
+
+        if (params.locationId) {
+            promises.push(
+                fileService.getBreadcrumbs(params.locationId)
+                    .then(res => {
+                        if (res.success && res.data.length > 0) {
+                            const currentFolder = res.data[res.data.length - 1];
+                            newNames.folderName = currentFolder.name;
+                        }
+                    })
+                    .catch(() => {
+                        newNames.folderName = params.locationId;
+                    })
+            );
+        }
+
+        if (promises.length > 0) {
+            await Promise.all(promises);
+            setResolvedNames(newNames);
+        } else {
+            setResolvedNames({ ownerName: '', folderName: '' });
+        }
+    };
+
+    // Fetch search results
+    async function fetchSearchResults() {
+        setLoading(true);
+        try {
+            const { ownerDisplayName, locationDisplayName, ...cleanParams } = currentParams;
+            const apiParams = { ...cleanParams, page: 0, size: 50 };
+
+            const res = await fileService.searchFiles(apiParams);
+            if (res.success) {
+                setResults(res.data);
+            }
+
+            await resolveFilterNames(cleanParams);
+        } catch (error) {
+            console.error("Lỗi tìm kiếm:", error);
+            toast.error("Không thể tìm kiếm.");
+        } finally {
+            setLoading(false);
+        }
     }
-  };
 
-  return (
-    <div className="p-6 animate-fade-in pb-20">
-      {/* 1. Header & Back */}
-      <div className="flex items-center gap-4 mb-4">
-        <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition">
-            <FaArrowLeft />
-        </button>
-        <div>
-            <h1 className="text-2xl font-bold text-gray-800">Kết quả tìm kiếm</h1>
-            {currentParams.keyword && <p className="text-sm text-gray-500">Từ khóa: <span className="font-bold">"{currentParams.keyword}"</span></p>}
-        </div>
-      </div>
+    useEffect(() => {
+        fetchSearchResults();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
 
-      {/* 2. FILTER CHIPS */}
-      {(currentParams.fileType || currentParams.ownerId || currentParams.locationId || currentParams.inTrash || currentParams.fromDate) && (
-          <div className="flex flex-wrap gap-2 mb-6 items-center">
-              <span className="text-xs text-gray-500 font-medium mr-1">Bộ lọc:</span>
+    // 7. RENDER
+    return (
+        <div className="animate-fade-in pb-10 min-h-[80vh]">
 
-              {currentParams.fileType && (
-                  <div className="flex items-center gap-1 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs border border-blue-100 shadow-sm">
-                      {getFilterLabel('fileType', currentParams.fileType)}
-                      <button onClick={() => handleRemoveFilter('fileType')} className="hover:text-blue-900 rounded-full p-0.5"><FaTimes /></button>
-                  </div>
-              )}
-              {currentParams.ownerId && (
-                  <div className="flex items-center gap-1 bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs border border-purple-100 shadow-sm">
-                      {getFilterLabel('ownerId', currentParams.ownerId)}
-                      <button onClick={() => handleRemoveFilter('ownerId')} className="hover:text-purple-900 rounded-full p-0.5"><FaTimes /></button>
-                  </div>
-              )}
-              {currentParams.locationId && (
-                  <div className="flex items-center gap-1 bg-orange-50 text-orange-700 px-3 py-1 rounded-full text-xs border border-orange-100 shadow-sm">
-                      {getFilterLabel('locationId', currentParams.locationId)}
-                      <button onClick={() => handleRemoveFilter('locationId')} className="hover:text-orange-900 rounded-full p-0.5"><FaTimes /></button>
-                  </div>
-              )}
-              {(currentParams.fromDate || currentParams.toDate) && (
-                  <div className="flex items-center gap-1 bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs border border-green-100 shadow-sm">
-                      {currentParams.fromDate || '...'} &#8594; {currentParams.toDate || '...'}
-                      <button onClick={() => handleRemoveFilter('dateRange')} className="hover:text-green-900 rounded-full p-0.5"><FaTimes /></button>
-                  </div>
-              )}
-              {currentParams.inTrash === 'true' && (
-                  <div className="flex items-center gap-1 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs border border-red-100 shadow-sm">
-                      Trong thùng rác
-                      <button onClick={() => handleRemoveFilter('inTrash')} className="hover:text-red-900 rounded-full p-0.5"><FaTimes /></button>
-                  </div>
-              )}
-
-              <button onClick={handleClearAll} className="text-xs text-gray-500 hover:text-red-600 hover:underline ml-2">Xóa bộ lọc</button>
-          </div>
-      )}
-
-      {/* 3. TOOLBAR (RESULT COUNT + VIEW TOGGLE) */}
-      <div className="flex justify-between items-center mb-4">
-          <p className="text-gray-500 text-sm">
-              Tìm thấy <span className="font-bold text-blue-600">{results.length}</span> kết quả phù hợp.
-          </p>
-
-          {/* View Mode Switcher */}
-          <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
-                <button 
-                    onClick={() => setViewMode('list')}
-                    className={`p-1.5 rounded transition ${viewMode === 'list' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    title="Danh sách"
+            {/* HEADER */}
+            <div className="flex items-center gap-4 mb-6">
+                <button
+                    onClick={() => navigate(-1)}
+                    className="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition"
+                    title="Quay lại"
                 >
-                    <FaList size={16} />
+                    <FaArrowLeft />
                 </button>
-                <button 
-                    onClick={() => setViewMode('grid')}
-                    className={`p-1.5 rounded transition ${viewMode === 'grid' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                    title="Lưới"
-                >
-                    <FaThLarge size={16} />
-                </button>
-          </div>
-      </div>
-
-      {/* TOOLBAR */}
-            {selectedItems.length > 0 && (
-                <div className="flex items-center gap-3 bg-blue-50 p-2 rounded-lg border border-blue-200 w-full animate-fade-in">
-                    <span className="font-bold text-blue-800 text-sm ml-2">{selectedItems.length} đã chọn</span>
-                    <button onClick={clearSelection} className="text-xs text-blue-600 hover:underline">Bỏ chọn</button>
-                    <div className="flex-1 text-right gap-2 flex justify-end">
-                        <button onClick={() => setShowMoveModal(true)} className="flex items-center gap-2 px-3 py-1 bg-white border rounded text-sm hover:bg-gray-50"><FaExchangeAlt/> Di chuyển</button>
-                        <button onClick={() => { setFilesToDelete(selectedItems); setShowDeleteModal(true); }} className="flex items-center gap-2 px-3 py-1 bg-white border border-red-200 text-red-600 rounded text-sm hover:bg-red-50"><FaTrash/> Xóa</button>
-                    </div>
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-800">Kết quả tìm kiếm</h1>
+                    {currentParams.keyword && (
+                        <p className="text-sm text-gray-500">
+                            Từ khóa: <span className="font-bold">"{currentParams.keyword}"</span>
+                        </p>
+                    )}
                 </div>
+            </div>
+
+            {/* FILTER CHIPS */}
+            <FilterChips
+                filters={filters}
+                onRemove={handleRemoveFilter}
+                onClearAll={handleClearAllFilters}
+            />
+
+            {/* TOOLBAR */}
+            <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                <p className="text-gray-500 text-sm self-start md:self-center">
+                    Tìm thấy <span className="font-bold text-blue-600">{results.length}</span> kết quả phù hợp.
+                </p>
+
+                <div className="flex items-center gap-3 self-end md:self-center">
+                    {/* Column Toggle - Chỉ hiện ở List View */}
+                    {viewMode === 'list' && (
+                        <ColumnToggle
+                            allColumns={SEARCH_COLUMNS}
+                            visibleColumns={visibleColumns}
+                            onChange={setVisibleColumns}
+                        />
+                    )}
+
+                    {/* View Mode */}
+                    <ViewModeToggle
+                        viewMode={viewMode}
+                        onChange={setViewMode}
+                    />
+                </div>
+            </div>
+
+            {/* BATCH ACTIONS */}
+            <BatchActionBar
+                selectedCount={selectionCount}
+                selectedFiles={selectedFiles}
+                onClearSelection={clearSelection}
+                onAction={handleBatchAction}
+                actions={[BATCH_ACTIONS.MOVE, BATCH_ACTIONS.DELETE]}
+            />
+
+            {/* MAIN CONTENT */}
+            {loading ? <Loading /> : (
+                results.length > 0 ? (
+                    viewMode === 'list' ? (
+                        <FileListView
+                            files={results}
+                            visibleColumns={visibleColumns}
+                            isSelected={isSelected}
+                            isAllSelected={isAllSelected}
+                            onSelectAll={selectAll}
+                            onToggleSelect={toggleSelect}
+                            onRowClick={handleSmartClickWrapper}
+                            onDoubleClick={handleDoubleClick}
+                            onContextMenu={openItemMenu}
+                            onMenuClick={openItemMenuFromButton}
+                            onRetry={(e, file) => fileActions.handleRetry(e, file, setResults)}
+                        />
+                    ) : (
+                        <FileGridView
+                            files={results}
+                            isSelected={isSelected}
+                            onToggleSelect={toggleSelect}
+                            onCardClick={handleSmartClickWrapper}
+                            onDoubleClick={handleDoubleClick}
+                            onContextMenu={openItemMenu}
+                            onMenuClick={openItemMenuFromButton}
+                            onRetry={(e, file) => fileActions.handleRetry(e, file, setResults)}
+                        />
+                    )
+                ) : (
+                    <EmptyState type="search" />
+                )
             )}
 
-        {/* --- SỬ DỤNG COMPONENT TÁI SỬ DỤNG --- */}
-        {loading ? <Loading /> : (
-            <FileExplorer 
-                files={results}
-                viewMode={viewMode}
-                selectedItems={selectedItems}
-                onSelect={handleSelect}
-                onSelectAll={selectAll}
-                onNavigate={handleNavigate}
-                onContextMenu={handleContextMenu}
-                onMenuAction={handleMenuBtnClick}
-                showOwner={true} // Bật cột Owner cho trang tìm kiếm
+            {/* CONTEXT MENU */}
+            <ItemContextMenu
+                menuState={itemMenu}
+                onClose={closeItemMenu}
+                onAction={handleMenuAction}
             />
-        )}
 
-        {/* Modals & Menus */}
-        <ItemContextMenu 
-            menuState={itemMenu}
-            onClose={() => setItemMenu({ ...itemMenu, visible: false })}
-            onAction={handleMenuAction}
-        />
-        <MoveFileModal 
-            isOpen={showMoveModal}
-            onClose={() => setShowMoveModal(false)}
-            selectedItems={selectedItems}
-            onSuccess={() => { /* Reload data */ }}
-        />
+            {/* ========== MODALS ========== */}
 
-      <DeleteConfirmModal 
-          isOpen={showDeleteModal}
-          onClose={() => setShowDeleteModal(false)}
-          onConfirm={() => { /* Logic delete */ }}
-          count={filesToDelete.length}
-          isPermanent={false}
-      />
-    </div>
-  );
+            {/* Modal Đổi Tên */}
+            <RenameModal
+                isOpen={fileActions.showRenameModal}
+                onClose={fileActions.closeRenameModal}
+                onSubmit={() => fileActions.submitRename({ preventDefault: () => { } })}
+                item={fileActions.renameData.item}
+                value={fileActions.renameData.newName}
+                onChange={(val) => fileActions.setRenameData({ ...fileActions.renameData, newName: val })}
+            />
+
+            {/* Modal Cập nhật Mô tả */}
+            <DescriptionModal
+                isOpen={fileActions.showDescModal}
+                onClose={fileActions.closeDescModal}
+                onSubmit={() => fileActions.submitDescription({ preventDefault: () => { } })}
+                item={fileActions.descData.item}
+                value={fileActions.descData.description}
+                onChange={(val) => fileActions.setDescData({ ...fileActions.descData, description: val })}
+            />
+
+            {/* Modal Thông tin Chi tiết */}
+            <FileInfoModal
+                isOpen={fileActions.showInfoModal}
+                onClose={fileActions.closeInfoModal}
+                data={fileActions.infoData}
+                loading={fileActions.infoLoading}
+                currentUserId={currentUserId}
+            />
+
+            {/* Modal Chia sẻ */}
+            <ShareModal
+                isOpen={fileActions.showShareModal}
+                onClose={fileActions.closeShareModal}
+                data={fileActions.shareData}
+                loading={fileActions.shareLoading}
+                currentUserId={currentUserId}
+                emailInput={fileActions.emailInput}
+                onEmailChange={fileActions.setEmailInput}
+                permissionInput={fileActions.permissionInput}
+                onPermissionChange={fileActions.setPermissionInput}
+                onAddUser={fileActions.handleAddUserShare}
+                onRevokeClick={fileActions.clickRevoke}
+                onUpdatePermission={fileActions.handleUpdatePermission}
+                onChangePublicAccess={fileActions.handleChangePublicAccess}
+                onCopyLink={fileActions.copyShareLink}
+            />
+
+            {/* Modal Xác nhận Gỡ quyền */}
+            <ConfirmRevokeModal
+                isOpen={fileActions.showConfirmRevokeModal}
+                onClose={fileActions.closeConfirmRevokeModal}
+                onConfirm={fileActions.confirmRevoke}
+                user={fileActions.userToRevoke}
+                loading={fileActions.revokeLoading}
+            />
+
+            {/* Modal Di chuyển */}
+            <MoveFileModal
+                isOpen={fileActions.showMoveModal}
+                onClose={fileActions.closeMoveModal}
+                selectedItems={selectedFiles}
+                onSuccess={fileActions.handleMoveSuccess}
+            />
+
+            {/* Modal Xóa */}
+            <DeleteConfirmModal
+                isOpen={fileActions.showDeleteModal}
+                onClose={fileActions.closeDeleteModal}
+                onConfirm={fileActions.executeDelete}
+                count={fileActions.filesToDelete.length}
+                isLoading={fileActions.deleting}
+                isPermanent={false}
+            />
+        </div>
+    );
 };
 
 export default SearchPage;

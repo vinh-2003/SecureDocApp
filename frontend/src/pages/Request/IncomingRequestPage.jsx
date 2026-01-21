@@ -17,7 +17,7 @@ const IncomingRequestPage = () => {
         try {
             setLoading(true);
             const res = await fileService.getIncomingRequests();
-            
+
             if (res.success && res.data.length > 0) {
                 const rawRequests = res.data;
 
@@ -25,13 +25,13 @@ const IncomingRequestPage = () => {
                 const enrichedRequests = await Promise.all(rawRequests.map(async (req) => {
                     // 1. Lấy thông tin File
                     const filePromise = fileService.getFileDetails(req.fileId).catch(() => null);
-                    
+
                     // 2. Lấy thông tin User (Dùng API mới thêm)
                     const userPromise = userService.getUserById(req.requesterId).catch(() => null);
 
                     // Chờ cả 2 xong
                     const [fileRes, userRes] = await Promise.all([filePromise, userPromise]);
-                    
+
                     const fileData = fileRes?.data;
                     const userData = userRes?.data; // UserInfoResponse từ Backend
 
@@ -39,7 +39,7 @@ const IncomingRequestPage = () => {
                         ...req,
                         // Data File
                         fileName: fileData?.name || 'Tài liệu không xác định',
-                        
+
                         // Data User (Map từ UserInfoResponse)
                         requesterName: userData?.fullName || userData?.username || req.requesterId, // Ưu tiên FullName -> Username -> ID
                         requesterEmail: userData?.email || 'Email ẩn',
@@ -87,7 +87,7 @@ const IncomingRequestPage = () => {
             {/* Header */}
             <div className="mb-6">
                 <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                    <FaUserShield className="text-blue-600" /> 
+                    <FaUserShield className="text-blue-600" />
                     Quản lý Yêu cầu Truy cập
                 </h1>
                 <p className="text-gray-500 text-sm mt-1">
@@ -125,9 +125,9 @@ const IncomingRequestPage = () => {
                                             <div className="flex items-center gap-3">
                                                 {/* Avatar */}
                                                 {req.requesterAvatar ? (
-                                                    <img 
-                                                        src={req.requesterAvatar} 
-                                                        alt="avt" 
+                                                    <img
+                                                        src={req.requesterAvatar}
+                                                        alt="avt"
                                                         className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm"
                                                     />
                                                 ) : (
@@ -135,7 +135,7 @@ const IncomingRequestPage = () => {
                                                         <FaUser />
                                                     </div>
                                                 )}
-                                                
+
                                                 {/* Tên & Email */}
                                                 <div>
                                                     <p className="font-bold text-gray-800 text-sm">
@@ -151,7 +151,7 @@ const IncomingRequestPage = () => {
                                             <div className="flex items-start gap-2">
                                                 <FaFileAlt className="text-gray-400 mt-1" />
                                                 <div>
-                                                    <p 
+                                                    <p
                                                         className="font-medium text-blue-600 hover:underline cursor-pointer text-sm"
                                                         onClick={() => navigate(`/file/view/${req.fileId}`)}
                                                     >
@@ -190,13 +190,13 @@ const IncomingRequestPage = () => {
                                         {/* 5. Hành động */}
                                         <td className="p-4 align-top text-right">
                                             <div className="flex justify-end gap-2">
-                                                <button 
+                                                <button
                                                     onClick={() => handleProcess(req.id, false)}
                                                     className="flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-600 rounded hover:bg-red-50 transition text-sm font-medium"
                                                 >
                                                     <FaTimes /> Từ chối
                                                 </button>
-                                                <button 
+                                                <button
                                                     onClick={() => handleProcess(req.id, true)}
                                                     className="flex items-center gap-1 px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 shadow-sm transition text-sm font-medium"
                                                 >

@@ -6,7 +6,7 @@ import { toast } from 'react-toastify';
 
 const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
     // selectedItems: Danh sách các file/folder đang được chọn để di chuyển
-    
+
     const [currentFolderId, setCurrentFolderId] = useState(null); // ID thư mục đang xem trong modal
     const [folders, setFolders] = useState([]); // Danh sách folder con
     const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, name: 'Thư mục gốc' }]);
@@ -71,7 +71,7 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
             // Gọi API Move
             const itemIds = selectedItems.map(item => item.id);
             const res = await fileService.moveFiles(itemIds, currentFolderId);
-            
+
             if (res.success) {
                 // Hiển thị thông báo từ server (có đếm thành công/thất bại)
                 toast.success(res.message);
@@ -90,7 +90,7 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col max-h-[80vh] animate-fade-in-down">
-                
+
                 {/* Header */}
                 <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <h3 className="font-bold text-gray-800">Di chuyển {selectedItems.length} mục đến...</h3>
@@ -102,7 +102,7 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
                     {breadcrumbs.map((crumb, index) => (
                         <div key={crumb.id || 'root'} className="flex items-center text-sm">
                             {index > 0 && <span className="mx-1 text-gray-400">/</span>}
-                            <button 
+                            <button
                                 onClick={() => handleBreadcrumbClick(crumb, index)}
                                 className={`hover:text-blue-600 flex items-center gap-1 ${index === breadcrumbs.length - 1 ? 'font-bold text-gray-800' : 'text-gray-500'}`}
                             >
@@ -124,7 +124,7 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
                     ) : (
                         <div className="space-y-1">
                             {folders.map(folder => (
-                                <div 
+                                <div
                                     key={folder.id}
                                     onClick={() => handleEnterFolder(folder)}
                                     className="flex items-center gap-3 p-3 hover:bg-blue-50 cursor-pointer rounded-lg border border-transparent hover:border-blue-100 transition"
@@ -140,14 +140,14 @@ const MoveFileModal = ({ isOpen, onClose, selectedItems, onSuccess }) => {
 
                 {/* Footer Action */}
                 <div className="p-4 border-t flex justify-end gap-3 bg-gray-50 rounded-b-xl">
-                    <button 
+                    <button
                         onClick={onClose}
                         className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm font-medium transition"
                         disabled={submitting}
                     >
                         Huỷ bỏ
                     </button>
-                    <button 
+                    <button
                         onClick={handleConfirmMove}
                         disabled={submitting || loading}
                         className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-md transition flex items-center gap-2 disabled:opacity-50"

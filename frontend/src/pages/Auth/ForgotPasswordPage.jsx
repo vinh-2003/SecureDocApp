@@ -1,68 +1,111 @@
-import React, { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { Link } from 'react-router-dom';
-import { toast } from 'react-toastify';
-import authService from '../../services/authService';
+import React from 'react';
+import { FaEnvelope, FaPaperPlane } from 'react-icons/fa';
 
+// Components
+import {
+  AuthLayout,
+  AuthInput,
+  AuthButton,
+  AuthBackLink,
+  EmailSentSuccess
+} from '../../components/Auth';
+
+// Hooks
+import { useForgotPassword } from '../../hooks';
+
+/**
+ * =============================================================================
+ * FORGOT PASSWORD PAGE
+ * =============================================================================
+ * Trang quên mật khẩu với: 
+ * - Form nhập email
+ * - Gửi link đặt lại mật khẩu
+ * - Hiển thị thành công sau khi gửi
+ * - Gửi lại email
+ * =============================================================================
+ */
 const ForgotPasswordPage = () => {
-  const { register, handleSubmit, formState: { errors } } = useForm();
-  const [loading, setLoading] = useState(false);
+  const {
+    form,
+    loading,
+    emailSent,
+    sentEmail,
+    validationRules,
+    handleSubmit,
+    handleResend,
+    handleReset
+  } = useForgotPassword();
 
-  const onSubmit = async (data) => {
-    setLoading(true);
-    try {
-      await authService.forgotPassword(data.email);
-      toast.success('Link đặt lại mật khẩu đã được gửi vào email của bạn!');
-    } catch (error) {
-      const message = error.response?.data?.message || 'Không tìm thấy email này trong hệ thống.';
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { register, handleSubmit: formHandleSubmit, formState: { errors } } = form;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-      <div className="bg-white p-8 rounded shadow-md w-full max-w-md">
-        <h2 className="text-2xl font-bold mb-4 text-center text-blue-600">Quên mật khẩu?</h2>
-        <p className="text-center text-gray-500 mb-6 text-sm">
-          Nhập email của bạn, chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.
-        </p>
+    <AuthLayout
+      title={emailSent ? undefined : 'Quên mật khẩu? '}
+      subtitle={emailSent ? undefined : 'Nhập email của bạn để nhận link đặt lại mật khẩu'}
+    >
+      {emailSent ? (
+        // Hiển thị thành công
+        <EmailSentSuccess
+          email={sentEmail}
+          onResend={handleResend}
+          onBack={handleReset}
+          loading={loading}
+        />
+      ) : (
+        // Form nhập email
+        <>
+          <ForgotPasswordForm
+            register={register}
+            errors={errors}
+            loading={loading}
+            validationRules={validationRules}
+            onSubmit={formHandleSubmit(handleSubmit)}
+          />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block mb-1 font-medium text-sm text-gray-700">Email đã đăng ký</label>
-            <input 
-              type="email"
-              {...register('email', { 
-                required: 'Vui lòng nhập email',
-                pattern: {
-                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                  message: "Email không hợp lệ"
-                }
-              })}
-              className={`w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
-              placeholder="example@gmail.com"
-            />
-            {errors.email && <span className="text-red-500 text-xs">{errors.email.message}</span>}
-          </div>
+          <AuthBackLink
+            to="/login"
+            text="Quay lại Đăng nhập"
+          />
+        </>
+      )}
+    </AuthLayout>
+  );
+};
 
-          <button 
-            type="submit" 
-            disabled={loading}
-            className={`w-full text-white py-2 rounded transition font-medium ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-          >
-            {loading ? 'Đang gửi...' : 'Gửi link xác nhận'}
-          </button>
-        </form>
+/**
+ * Form nhập email
+ */
+const ForgotPasswordForm = ({
+  register,
+  errors,
+  loading,
+  validationRules,
+  onSubmit
+}) => {
+  return (
+    <form onSubmit={onSubmit} className="space-y-5">
+      {/* Email Input */}
+      <AuthInput
+        label="Email đã đăng ký"
+        type="email"
+        placeholder="example@gmail.com"
+        icon={FaEnvelope}
+        error={errors.email?.message}
+        register={register('email', validationRules.email)}
+      />
 
-        <div className="mt-6 text-center text-sm">
-            <Link to="/login" className="text-gray-600 hover:text-blue-600 flex items-center justify-center gap-1">
-              &larr; Quay lại Đăng nhập
-            </Link>
-        </div>
-      </div>
-    </div>
+      {/* Hint */}
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Chúng tôi sẽ gửi link đặt lại mật khẩu vào email này.
+        Link có hiệu lực trong 24 giờ.
+      </p>
+
+      {/* Submit Button */}
+      <AuthButton loading={loading}>
+        <FaPaperPlane />
+        <span>Gửi link xác nhận</span>
+      </AuthButton>
+    </form>
   );
 };
 

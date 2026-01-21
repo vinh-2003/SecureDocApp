@@ -1,78 +1,95 @@
-import React, { useContext } from 'react';
-import { useForm } from 'react-hook-form';
-import { AuthContext } from '../../context/AuthContext';
-import { GoogleLogin } from '@react-oauth/google';
+import React from 'react';
 import { Link } from 'react-router-dom';
+import { FaUser, FaLock, FaSignInAlt } from 'react-icons/fa';
 
+// Components
+import {
+    AuthLayout,
+    AuthInput,
+    AuthButton,
+    AuthDivider,
+    AuthFooter,
+    GoogleLoginButton
+} from '../../components/Auth';
+
+// Hooks
+import { useLogin } from '../../hooks';
+
+/**
+ * =============================================================================
+ * LOGIN PAGE
+ * =============================================================================
+ * Trang đăng nhập với: 
+ * - Form đăng nhập username/password
+ * - Đăng nhập bằng Google
+ * - Link quên mật khẩu
+ * - Link đăng ký
+ * =============================================================================
+ */
 const LoginPage = () => {
-    const { register, handleSubmit, formState: { errors } } = useForm();
-    const { login, loginWithGoogle } = useContext(AuthContext);
-
-    const onSubmit = (data) => {
-        login(data.username, data.password);
-    };
+    const { form, loading, handleLogin, handleGoogleLogin } = useLogin();
+    const { register, handleSubmit, formState: { errors } } = form;
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-            <div className="bg-white p-8 rounded shadow-md w-full max-w-md">
-                <h2 className="text-2xl font-bold mb-6 text-center text-blue-600">SecureDoc Login</h2>
+        <AuthLayout
+            title="Chào mừng trở lại"
+            subtitle="Đăng nhập để tiếp tục sử dụng SecureDoc"
+        >
+            {/* Login Form */}
+            <form onSubmit={handleSubmit(handleLogin)} className="space-y-5">
+                {/* Tên đăng nhập */}
+                <AuthInput
+                    label="Tên đăng nhập"
+                    placeholder="Nhập tên đăng nhập"
+                    icon={FaUser}
+                    error={errors.username?.message}
+                    register={register('username', {
+                        required: 'Vui lòng nhập tên đăng nhập'
+                    })}
+                />
 
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                    {/* Username */}
-                    <div>
-                        <label className="block mb-1 font-medium">Username</label>
-                        <input
-                            {...register('username', { required: 'Vui lòng nhập username' })}
-                            className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Nhập username"
-                        />
-                        {errors.username && <span className="text-red-500 text-sm">{errors.username.message}</span>}
-                    </div>
+                {/* Mật khẩu */}
+                <AuthInput
+                    label="Mật khẩu"
+                    type="password"
+                    placeholder="Nhập mật khẩu"
+                    icon={FaLock}
+                    error={errors.password?.message}
+                    register={register('password', {
+                        required: 'Vui lòng nhập mật khẩu'
+                    })}
+                    rightElement={
+                        <Link
+                            to="/forgot-password"
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline transition"
+                        >
+                            Quên mật khẩu?
+                        </Link>
+                    }
+                />
 
-                    {/* Password */}
-                    <div>
-                        <div className="flex justify-between items-center mb-1">
-                            <label className="font-medium">Password</label>
-                            {/* Link Quên mật khẩu */}
-                            <Link to="/forgot-password" className="text-xs text-blue-600 hover:underline">
-                                Quên mật khẩu?
-                            </Link>
-                        </div>
-                        <input
-                            type="password"
-                            {...register('password', { required: 'Vui lòng nhập mật khẩu' })}
-                            className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="******"
-                        />
-                        {errors.password && <span className="text-red-500 text-sm">{errors.password.message}</span>}
-                    </div>
+                {/* Nút đăng nhập */}
+                <AuthButton loading={loading}>
+                    <FaSignInAlt />
+                    <span>Đăng nhập</span>
+                </AuthButton>
+            </form>
 
-                    <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">
-                        Đăng nhập
-                    </button>
-                </form>
+            {/* Divider */}
+            <AuthDivider text="hoặc tiếp tục với" />
 
-                <div className="my-4 flex items-center justify-between">
-                    <hr className="w-full border-gray-300" />
-                    <span className="px-2 text-gray-500 text-sm">OR</span>
-                    <hr className="w-full border-gray-300" />
-                </div>
+            {/* Google Login */}
+            <GoogleLoginButton
+                onSuccess={handleGoogleLogin}
+            />
 
-                {/* Google Login Button */}
-                <div className="flex justify-center">
-                    <GoogleLogin
-                        onSuccess={loginWithGoogle}
-                        onError={() => {
-                            console.log('Google Login Failed');
-                        }}
-                    />
-                </div>
-
-                <div className="mt-4 text-center text-sm">
-                    Chưa có tài khoản? <Link to="/register" className="text-blue-600 hover:underline">Đăng ký ngay</Link>
-                </div>
-            </div>
-        </div>
+            {/* Footer */}
+            <AuthFooter
+                text="Chưa có tài khoản?"
+                linkText="Đăng ký ngay"
+                linkTo="/register"
+            />
+        </AuthLayout>
     );
 };
 

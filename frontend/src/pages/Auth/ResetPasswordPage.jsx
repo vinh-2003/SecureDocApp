@@ -1,95 +1,122 @@
-import React, { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'react-toastify';
-import authService from '../../services/authService';
+import React from 'react';
+import { FaLock, FaCheckCircle, FaKey } from 'react-icons/fa';
 
+// Components
+import {
+  AuthLayout,
+  AuthInput,
+  AuthButton,
+  PasswordStrength,
+  PasswordRequirements,
+  ResetPasswordSuccess,
+  InvalidTokenError
+} from '../../components/Auth';
+
+// Hooks
+import { useResetPassword } from '../../hooks';
+
+/**
+ * =============================================================================
+ * RESET PASSWORD PAGE
+ * =============================================================================
+ * Trang đặt lại mật khẩu với:  
+ * - Kiểm tra token từ URL
+ * - Form nhập mật khẩu mới
+ * - Yêu cầu mật khẩu mạnh
+ * - Hiển thị thành công/lỗi
+ * =============================================================================
+ */
 const ResetPasswordPage = () => {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm();
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-  
-  // Hook để lấy query params từ URL (?token=...)
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  const {
+    form,
+    loading,
+    isSuccess,
+    isValidToken,
+    newPassword,
+    validationRules,
+    handleSubmit,
+    goToLogin
+  } = useResetPassword();
 
-  // Kiểm tra nếu không có token thì đuổi về trang login
-  useEffect(() => {
-    if (!token) {
-        toast.error("Link không hợp lệ!");
-        navigate('/login');
-    }
-  }, [token, navigate]);
+  const { register, handleSubmit: formHandleSubmit, formState: { errors } } = form;
 
-  const password = watch("newPassword");
+  // Token không hợp lệ
+  if (!isValidToken) {
+    return (
+      <AuthLayout>
+        <InvalidTokenError />
+      </AuthLayout>
+    );
+  }
 
-  const onSubmit = async (data) => {
-    setLoading(true);
-    try {
-      await authService.resetPassword(token, data.newPassword);
-      toast.success('Đổi mật khẩu thành công! Vui lòng đăng nhập lại.');
-      
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
-    } catch (error) {
-      const message = error.response?.data?.message || 'Link đã hết hạn hoặc không hợp lệ.';
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Đổi mật khẩu thành công
+  if (isSuccess) {
+    return (
+      <AuthLayout>
+        <ResetPasswordSuccess onGoToLogin={goToLogin} />
+      </AuthLayout>
+    );
+  }
 
-  if (!token) return null; // Tránh render form khi chưa có token
-
+  // Form đổi mật khẩu
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-      <div className="bg-white p-8 rounded shadow-md w-full max-w-md">
-        <h2 className="text-2xl font-bold mb-2 text-center text-green-600">Đặt lại mật khẩu</h2>
-        <p className="text-center text-gray-500 mb-6 text-sm">Nhập mật khẩu mới cho tài khoản của bạn</p>
+    <AuthLayout
+      title="Đặt lại mật khẩu"
+      subtitle="Tạo mật khẩu mới cho tài khoản của bạn"
+    >
+      <form onSubmit={formHandleSubmit(handleSubmit)} className="space-y-4">
+        {/* Mật khẩu mới */}
+        <div>
+          <AuthInput
+            label="Mật khẩu mới"
+            type="password"
+            placeholder="Nhập mật khẩu mới"
+            icon={FaLock}
+            error={errors.newPassword?.message}
+            register={register('newPassword', validationRules.newPassword)}
+          />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* New Password */}
-          <div>
-            <label className="block mb-1 font-medium text-sm text-gray-700">Mật khẩu mới</label>
-            <input 
-              type="password"
-              {...register('newPassword', { 
-                required: 'Mật khẩu không được để trống',
-                minLength: { value: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự' }
-              })}
-              className={`w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.newPassword ? 'border-red-500' : 'border-gray-300'}`}
-              placeholder="******"
-            />
-            {errors.newPassword && <span className="text-red-500 text-xs">{errors.newPassword.message}</span>}
-          </div>
+          {/* Yêu cầu mật khẩu */}
+          <PasswordRequirements password={newPassword} />
 
-          {/* Confirm Password */}
-          <div>
-            <label className="block mb-1 font-medium text-sm text-gray-700">Xác nhận mật khẩu</label>
-            <input 
-              type="password"
-              {...register('confirmPassword', { 
-                required: 'Vui lòng xác nhận mật khẩu',
-                validate: value => value === password || "Mật khẩu nhập lại không khớp"
-              })}
-              className={`w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300'}`}
-              placeholder="******"
-            />
-            {errors.confirmPassword && <span className="text-red-500 text-xs">{errors.confirmPassword.message}</span>}
-          </div>
+          {/* Độ mạnh mật khẩu */}
+          <PasswordStrength password={newPassword} />
+        </div>
 
-          <button 
-            type="submit" 
-            disabled={loading}
-            className={`w-full text-white py-2 rounded transition font-medium ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-          >
-            {loading ? 'Đang xử lý...' : 'Đổi mật khẩu'}
-          </button>
-        </form>
-      </div>
-    </div>
+        {/* Xác nhận mật khẩu */}
+        <AuthInput
+          label="Xác nhận mật khẩu"
+          type="password"
+          placeholder="Nhập lại mật khẩu mới"
+          icon={FaCheckCircle}
+          error={errors.confirmPassword?.message}
+          register={register('confirmPassword', validationRules.confirmPassword)}
+        />
+
+        {/* Nút submit */}
+        <AuthButton loading={loading} variant="success">
+          <FaKey />
+          <span>Đổi mật khẩu</span>
+        </AuthButton>
+      </form>
+
+      {/* Security notice */}
+      <SecurityNotice />
+    </AuthLayout>
   );
 };
+
+/**
+ * Thông báo bảo mật
+ */
+const SecurityNotice = () => (
+  <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-100">
+    <p className="text-xs text-amber-800 leading-relaxed">
+      <span className="font-medium">🔒 Lưu ý bảo mật:</span> Sau khi đổi mật khẩu,
+      bạn sẽ bị đăng xuất khỏi tất cả các thiết bị khác.
+      Vui lòng đăng nhập lại với mật khẩu mới.
+    </p>
+  </div>
+);
 
 export default ResetPasswordPage;

@@ -1,60 +1,229 @@
-// src/pages/RecentPage.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import fileService from '../../services/fileService';
-import { FaClock, FaList, FaThLarge, FaFileAlt, FaFilePdf, FaFileWord, FaFileImage } from 'react-icons/fa';
+import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
-import { vi } from 'date-fns/locale'; // Format tiếng Việt
+import { toast } from 'react-toastify';
+import { FaClock } from 'react-icons/fa';
+
+// Services & Context
+import fileService from '../../services/fileService';
+import { AuthContext } from '../../context/AuthContext';
+
+// Components
+import { ViewModeToggle, PageHeader, Loading } from '../../components/Common';
+import {
+    FileListView,
+    FileGridView,
+    EmptyState,
+    ColumnToggle,
+    BatchActionBar,
+    BATCH_ACTIONS,
+    GRID_INFO
+} from '../../components/FileExplorer';
+import {
+    ItemContextMenu,
+    MoveFileModal,
+    DeleteConfirmModal,
+    RenameModal,
+    DescriptionModal,
+    FileInfoModal,
+    ShareModal,
+    ConfirmRevokeModal
+} from '../../components/Dashboard';
+
+// Hooks
+import {
+    useContextMenu,
+    useFileClick,
+    useFileSelection,
+    useFileActions,
+    useFileIcon
+} from '../../hooks';
+
+// Constants
+import { RECENT_COLUMNS, RECENT_VISIBLE_COLUMNS } from '../../constants';
 
 const RecentPage = () => {
+    // 1.  ROUTER & CONTEXT
     const navigate = useNavigate();
-    
-    // DATA STATE
-    const [recentItems, setRecentItems] = useState([]);
+    const { user } = useContext(AuthContext);
+    const currentUserId = user?.userId;
+
+    // 2. LOCAL STATE
+    const [files, setFiles] = useState([]);
+    const [loading, setLoading] = useState(false);
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(true);
-    const [loading, setLoading] = useState(false);
+    const [viewMode, setViewMode] = useState('list');
+    const [visibleColumns, setVisibleColumns] = useState(RECENT_VISIBLE_COLUMNS);
 
-    // UI STATE
-    const [viewMode, setViewMode] = useState('list'); // 'list' | 'grid'
-
-    // INFINITE SCROLL REF
+    // 3. INFINITE SCROLL REF
     const observer = useRef();
     const lastElementRef = useCallback(node => {
         if (loading) return;
         if (observer.current) observer.current.disconnect();
-        
+
         observer.current = new IntersectionObserver(entries => {
             if (entries[0].isIntersecting && hasMore) {
-                setPage(prevPage => prevPage + 1); // Tăng trang -> Trigger useEffect
+                setPage(prevPage => prevPage + 1);
             }
         });
         if (node) observer.current.observe(node);
     }, [loading, hasMore]);
 
-    // LOAD DATA
+    // 4. CUSTOM HOOKS
+
+    // Context Menu
+    const {
+        itemMenu,
+        openItemMenu,
+        openItemMenuFromButton,
+        closeItemMenu,
+        closeAllMenus
+    } = useContextMenu();
+
+    // File Selection
+    const {
+        selectedFiles,
+        isSelected,
+        isAllSelected,
+        selectionCount,
+        toggleSelect,
+        selectSingle,
+        selectWithCtrl,
+        selectWithShift,
+        selectAll,
+        clearSelection,
+        setSelection
+    } = useFileSelection(files);
+
+    // File Icon
+    const { isProcessing, isFailed } = useFileIcon();
+
+    // File Actions
+    const fileActions = useFileActions({
+        onRefresh: () => {
+            // Reset và reload từ đầu
+            setFiles([]);
+            setPage(0);
+            setHasMore(true);
+        },
+        setSelection,
+        handleRename: async (item, newName) => {
+            try {
+                const res = await fileService.renameFile(item.id, newName);
+                if (res.success) {
+                    toast.success("Đổi tên thành công!");
+                    setFiles(prev => prev.map(f =>
+                        f.id === item.id ? { ...f, name: newName } : f
+                    ));
+                    return true;
+                }
+            } catch (error) {
+                toast.error(error.response?.data?.message || "Lỗi khi đổi tên.");
+            }
+            return false;
+        },
+        handleUpdateDescription: async (item, description) => {
+            try {
+                const res = await fileService.updateDescription(item.id, description);
+                if (res.success) {
+                    toast.success("Cập nhật mô tả thành công!");
+                    setFiles(prev => prev.map(f =>
+                        f.id === item.id ? { ...f, description } : f
+                    ));
+                    return true;
+                }
+            } catch (error) {
+                toast.error("Lỗi khi cập nhật mô tả.");
+            }
+            return false;
+        }
+    });
+
+    // File Click
+    const { handleSmartClick, handleDoubleClick: handleDoubleClickBase } = useFileClick({
+        onSingleClick: (e, file, index) => selectSingle(file, index),
+        onDoubleClick: (file) => handleNavigate(file),
+        onCtrlClick: (e, file, index) => selectWithCtrl(e, file, index),
+        onShiftClick: (e, file, index) => selectWithShift(index),
+        clickDelay: 250
+    });
+
+    // 5. HANDLERS
+
+    // Wrapper cho click
+    const handleSmartClickWrapper = (e, file, index) => {
+        if (isProcessing(file) || isFailed(file)) return;
+        handleSmartClick(e, file, index);
+    };
+
+    const handleDoubleClick = (file) => {
+        if (isProcessing(file) || isFailed(file)) return;
+        handleDoubleClickBase(file);
+    };
+
+    // Navigation
+    const handleNavigate = (file) => {
+        if (file.type === 'FOLDER') {
+            navigate(`/folders/${file.id}`);
+        } else {
+            const isViewable =
+                file.mimeType === 'application/pdf' ||
+                file.name?.toLowerCase().endsWith('.docx') ||
+                file.name?.toLowerCase().endsWith('.doc');
+
+            if (isViewable) {
+                navigate(`/file/view/${file.id}`);
+            } else {
+                fileActions.handleDownload(file);
+            }
+        }
+    };
+
+    // Menu Action
+    const handleMenuAction = (action, file) => {
+        fileActions.handleMenuAction(action, file, closeAllMenus);
+    };
+
+    // Batch Action
+    const handleBatchAction = (actionType) => {
+        if (actionType === BATCH_ACTIONS.MOVE) {
+            fileActions.openMoveModal(selectedFiles);
+        } else if (actionType === BATCH_ACTIONS.DELETE) {
+            fileActions.handleSoftDelete(selectedFiles);
+        }
+    };
+
+    // 6. DATA FETCHING
     useEffect(() => {
         const fetchRecent = async () => {
             setLoading(true);
             try {
-                const limit = 12; // Lấy 12 item mỗi lần
+                const limit = 12;
                 const res = await fileService.getRecentFiles(page, limit);
-                
+
                 if (res.success) {
                     const newItems = res.data;
-                    
+
                     // Nếu dữ liệu trả về ít hơn limit -> Hết dữ liệu
                     if (newItems.length < limit) setHasMore(false);
 
-                    // Nối dữ liệu cũ + mới (Dùng Set để tránh duplicate ID nếu mạng lag)
-                    setRecentItems(prev => {
+                    // Transform data:  API trả về { file, accessedAt }
+                    // Cần flatten thành { ... file, accessedAt }
+                    const transformedItems = newItems.map(item => ({
+                        ...item.file,
+                        accessedAt: item.accessedAt
+                    }));
+
+                    // Nối dữ liệu (Dùng Map để lọc trùng ID)
+                    setFiles(prev => {
                         const uniqueMap = new Map();
-                        [...prev, ...newItems].forEach(item => uniqueMap.set(item.file.id, item));
+                        [...prev, ...transformedItems].forEach(f => uniqueMap.set(f.id, f));
                         return Array.from(uniqueMap.values());
                     });
                 }
             } catch (error) {
-                console.error("Lỗi tải file", error);
+                console.error("Lỗi tải file gần đây:", error);
+                toast.error("Không thể tải danh sách file gần đây.");
             } finally {
                 setLoading(false);
             }
@@ -63,136 +232,179 @@ const RecentPage = () => {
         fetchRecent();
     }, [page]);
 
-    // HELPERS
-    const handleFileClick = (file) => {
-        const isViewable = file.mimeType === 'application/pdf' || file.name.endsWith('.docx');
-        if (isViewable) navigate(`/file/view/${file.id}`);
-        else window.open(`${process.env.REACT_APP_API_URL}/files/download/${file.id}`, '_blank');
-    };
-
-    const getFileIcon = (mimeType) => {
-        if (mimeType.includes('pdf')) return <FaFilePdf className="text-red-500" size={viewMode === 'grid' ? 40 : 24} />;
-        if (mimeType.includes('word') || mimeType.includes('officedocument')) return <FaFileWord className="text-blue-600" size={viewMode === 'grid' ? 40 : 24} />;
-        if (mimeType.includes('image')) return <FaFileImage className="text-purple-500" size={viewMode === 'grid' ? 40 : 24} />;
-        return <FaFileAlt className="text-gray-500" size={viewMode === 'grid' ? 40 : 24} />;
-    };
-
+    // 7. RENDER
     return (
-        <div className="p-6 bg-gray-50 min-h-screen">
-            {/* Header */}
-            <div className="mb-6 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <FaClock className="text-blue-600 text-xl" />
-                    <h1 className="text-2xl font-bold text-gray-800">Mở gần đây</h1>
-                </div>
+        <div className="animate-fade-in pb-10 min-h-[80vh]">
 
-                {/* View Switcher */}
-                <div className="bg-white p-1 rounded-lg border shadow-sm flex">
-                    <button 
-                        onClick={() => setViewMode('list')}
-                        className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                        title="Dạng danh sách"
-                    >
-                        <FaList />
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('grid')}
-                        className={`p-2 rounded ${viewMode === 'grid' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                        title="Dạng lưới"
-                    >
-                        <FaThLarge />
-                    </button>
-                </div>
-            </div>
+            {/* HEADER */}
+            <PageHeader
+                icon={<FaClock className="text-blue-600" />}
+                title="Mở gần đây"
+                subtitle="Các tài liệu bạn đã xem gần đây"
+                actions={
+                    <div className="flex items-center gap-3">
+                        {/* Column Toggle - Chỉ hiện ở List View */}
+                        {viewMode === 'list' && (
+                            <ColumnToggle
+                                allColumns={RECENT_COLUMNS}
+                                visibleColumns={visibleColumns}
+                                onChange={setVisibleColumns}
+                            />
+                        )}
 
-            {/* Content */}
-            {recentItems.length === 0 && !loading ? (
-                <div className="text-center py-12 bg-white rounded-lg border border-dashed">
-                    <p className="text-gray-500">Bạn chưa xem tài liệu nào gần đây.</p>
-                </div>
+                        {/* View Mode */}
+                        <ViewModeToggle
+                            viewMode={viewMode}
+                            onChange={setViewMode}
+                        />
+                    </div>
+                }
+            />
+
+            {/* BATCH ACTIONS */}
+            <BatchActionBar
+                selectedCount={selectionCount}
+                selectedFiles={selectedFiles}
+                onClearSelection={clearSelection}
+                onAction={handleBatchAction}
+                actions={[BATCH_ACTIONS.MOVE, BATCH_ACTIONS.DELETE]}
+            />
+
+            {/* MAIN CONTENT */}
+            {files.length === 0 && !loading ? (
+                <EmptyState type="recent" />
             ) : (
                 <>
-                    {/* --- VIEW MODE: LIST --- */}
                     {viewMode === 'list' ? (
-                        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-gray-100 text-gray-600 text-sm uppercase">
-                                    <tr>
-                                        <th className="p-4 font-semibold">Tên tài liệu</th>
-                                        <th className="p-4 font-semibold">Thời điểm mở</th>
-                                        <th className="p-4 font-semibold w-32">Kích thước</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {recentItems.map((item, index) => {
-                                        // Kiểm tra nếu là phần tử cuối cùng để gắn ref
-                                        const isLast = index === recentItems.length - 1;
-                                        return (
-                                            <tr 
-                                                key={item.file.id} 
-                                                ref={isLast ? lastElementRef : null}
-                                                onClick={() => handleFileClick(item.file)}
-                                                className="hover:bg-blue-50 cursor-pointer transition"
-                                            >
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-3">
-                                                        {getFileIcon(item.file.mimeType)}
-                                                        <span className="font-medium text-gray-800">{item.file.name}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-sm text-gray-500">
-                                                    {formatDistanceToNow(new Date(item.accessedAt), { addSuffix: true, locale: vi })}
-                                                </td>
-                                                <td className="p-4 text-sm text-gray-500">
-                                                    {(item.file.size / 1024).toFixed(1)} KB
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                        <FileListView
+                            files={files}
+                            visibleColumns={visibleColumns}
+                            isSelected={isSelected}
+                            isAllSelected={isAllSelected}
+                            onSelectAll={selectAll}
+                            onToggleSelect={toggleSelect}
+                            onRowClick={handleSmartClickWrapper}
+                            onDoubleClick={handleDoubleClick}
+                            onContextMenu={openItemMenu}
+                            onMenuClick={openItemMenuFromButton}
+                            onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
+                            lastElementRef={lastElementRef}
+                            useRelativeTime={true}
+                        />
                     ) : (
-                        /* --- VIEW MODE: GRID --- */
-                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                            {recentItems.map((item, index) => {
-                                const isLast = index === recentItems.length - 1;
-                                return (
-                                    <div 
-                                        key={item.file.id}
-                                        ref={isLast ? lastElementRef : null}
-                                        onClick={() => handleFileClick(item.file)}
-                                        className="bg-white p-4 rounded-xl border hover:shadow-md hover:border-blue-400 transition cursor-pointer flex flex-col items-center text-center group"
-                                    >
-                                        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                                            {getFileIcon(item.file.mimeType)}
-                                        </div>
-                                        <h3 className="font-medium text-gray-800 text-sm line-clamp-2 w-full mb-1" title={item.file.name}>
-                                            {item.file.name}
-                                        </h3>
-                                        <p className="text-xs text-gray-400 mt-auto pt-2 border-t w-full">
-                                            {formatDistanceToNow(new Date(item.accessedAt), { addSuffix: true, locale: vi })}
-                                        </p>
-                                    </div>
-                                );
-                            })}
+                        <FileGridView
+                            files={files}
+                            visibleInfo={[GRID_INFO.ACCESSED_AT]}
+                            isSelected={isSelected}
+                            onToggleSelect={toggleSelect}
+                            onCardClick={handleSmartClickWrapper}
+                            onDoubleClick={handleDoubleClick}
+                            onContextMenu={openItemMenu}
+                            onMenuClick={openItemMenuFromButton}
+                            onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
+                            lastElementRef={lastElementRef}
+                            useRelativeTime={true}
+                        />
+                    )}
+
+                    {/* Loading Indicator */}
+                    {loading && (
+                        <div className="py-6 flex justify-center">
+                            <Loading />
                         </div>
                     )}
 
-                    {/* Loading Indicator dưới cùng */}
-                    {loading && (
-                        <div className="py-4 text-center">
-                            <div className="animate-spin inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                        </div>
-                    )}
-                    
-                    {!hasMore && recentItems.length > 0 && (
+                    {/* End of List */}
+                    {!hasMore && files.length > 0 && (
                         <div className="py-6 text-center text-xs text-gray-400 uppercase tracking-widest">
-                            --- Hết danh sách ---
+                            — Hết danh sách —
                         </div>
                     )}
                 </>
             )}
+
+            {/* CONTEXT MENU */}
+            <ItemContextMenu
+                menuState={itemMenu}
+                onClose={closeItemMenu}
+                onAction={handleMenuAction}
+            />
+
+            {/* ========== MODALS ========== */}
+
+            {/* Modal Đổi Tên */}
+            <RenameModal
+                isOpen={fileActions.showRenameModal}
+                onClose={fileActions.closeRenameModal}
+                onSubmit={() => fileActions.submitRename({ preventDefault: () => { } })}
+                item={fileActions.renameData.item}
+                value={fileActions.renameData.newName}
+                onChange={(val) => fileActions.setRenameData({ ...fileActions.renameData, newName: val })}
+            />
+
+            {/* Modal Cập nhật Mô tả */}
+            <DescriptionModal
+                isOpen={fileActions.showDescModal}
+                onClose={fileActions.closeDescModal}
+                onSubmit={() => fileActions.submitDescription({ preventDefault: () => { } })}
+                item={fileActions.descData.item}
+                value={fileActions.descData.description}
+                onChange={(val) => fileActions.setDescData({ ...fileActions.descData, description: val })}
+            />
+
+            {/* Modal Thông tin Chi tiết */}
+            <FileInfoModal
+                isOpen={fileActions.showInfoModal}
+                onClose={fileActions.closeInfoModal}
+                data={fileActions.infoData}
+                loading={fileActions.infoLoading}
+                currentUserId={currentUserId}
+            />
+
+            {/* Modal Chia sẻ */}
+            <ShareModal
+                isOpen={fileActions.showShareModal}
+                onClose={fileActions.closeShareModal}
+                data={fileActions.shareData}
+                loading={fileActions.shareLoading}
+                currentUserId={currentUserId}
+                emailInput={fileActions.emailInput}
+                onEmailChange={fileActions.setEmailInput}
+                permissionInput={fileActions.permissionInput}
+                onPermissionChange={fileActions.setPermissionInput}
+                onAddUser={fileActions.handleAddUserShare}
+                onRevokeClick={fileActions.clickRevoke}
+                onUpdatePermission={fileActions.handleUpdatePermission}
+                onChangePublicAccess={fileActions.handleChangePublicAccess}
+                onCopyLink={fileActions.copyShareLink}
+            />
+
+            {/* Modal Xác nhận Gỡ quyền */}
+            <ConfirmRevokeModal
+                isOpen={fileActions.showConfirmRevokeModal}
+                onClose={fileActions.closeConfirmRevokeModal}
+                onConfirm={fileActions.confirmRevoke}
+                user={fileActions.userToRevoke}
+                loading={fileActions.revokeLoading}
+            />
+
+            {/* Modal Di chuyển */}
+            <MoveFileModal
+                isOpen={fileActions.showMoveModal}
+                onClose={fileActions.closeMoveModal}
+                selectedItems={selectedFiles}
+                onSuccess={fileActions.handleMoveSuccess}
+            />
+
+            {/* Modal Xóa */}
+            <DeleteConfirmModal
+                isOpen={fileActions.showDeleteModal}
+                onClose={fileActions.closeDeleteModal}
+                onConfirm={fileActions.executeDelete}
+                count={fileActions.filesToDelete.length}
+                isLoading={fileActions.deleting}
+                isPermanent={false}
+            />
         </div>
     );
 };

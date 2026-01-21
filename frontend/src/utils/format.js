@@ -1,33 +1,69 @@
-// Hàm format dung lượng file
+import { formatDistanceToNow } from 'date-fns';
+import { vi } from 'date-fns/locale';
+
+/**
+ * Format số bytes thành chuỗi dễ đọc
+ */
 export const formatBytes = (bytes, decimals = 2) => {
-    if (!+bytes) return '0 Bytes';
+    if (!bytes || bytes === 0) return '0 Bytes';
 
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
 
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-// Hàm format ngày tháng (dd/mm/yyyy hh:mm)
+/**
+ * Format ngày tháng đầy đủ
+ */
 export const formatDate = (dateString) => {
     if (!dateString) return '--';
-    const date = new Date(dateString);
-    return date.toLocaleString('vi-VN', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('vi-VN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch {
+        return '--';
+    }
 };
 
-// Hàm format ngày tháng ngắn gọn
+/**
+ * Format ngày tháng ngắn gọn (chỉ ngày)
+ */
 export const formatDateShort = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    // Format: DD/MM/YYYY
-    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    if (!dateString) return '--';
+
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('vi-VN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        });
+    } catch {
+        return '--';
+    }
+};
+
+/**
+ * Format thời gian tương đối (vd: "5 phút trước")
+ */
+export const formatRelativeTime = (dateString) => {
+    if (!dateString) return '--';
+
+    try {
+        const date = new Date(dateString);
+        return formatDistanceToNow(date, { addSuffix: true, locale: vi });
+    } catch {
+        return '--';
+    }
 };

@@ -1,9 +1,21 @@
 package com.securedoc.backend.service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.securedoc.backend.dto.file.ShareFileRequest;
 import com.securedoc.backend.entity.FileNode;
 import com.securedoc.backend.entity.User;
-import com.securedoc.backend.entity.elasticsearch.DocumentIndex;
 import com.securedoc.backend.enums.EFileType;
 import com.securedoc.backend.enums.EPermissionRole;
 import com.securedoc.backend.enums.EPublicAccess;
@@ -11,15 +23,9 @@ import com.securedoc.backend.exception.AppErrorCode;
 import com.securedoc.backend.exception.AppException;
 import com.securedoc.backend.repository.FileNodeRepository;
 import com.securedoc.backend.repository.UserRepository;
-import com.securedoc.backend.repository.elasticsearch.DocumentIndexRepository;
 import com.securedoc.backend.service.elasticsearch.DocumentIndexService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -28,98 +34,19 @@ public class FileShareService {
     private final FileNodeRepository fileNodeRepository;
     private final UserRepository userRepository;
     private final DocumentIndexService documentIndexService;
-
-    // Khoảng cách quyền lực giữa các thế hệ
-    private static final int GENERATION_GAP = 10;
-
-    // ==========================================================
-    // 1. CORE LOGIC: POWER MAP (BẢN ĐỒ QUYỀN LỰC)
-    // ==========================================================
-
-    /**
-     * Xây dựng bản đồ quyền lực cho 1 Node dựa trên tổ tiên của nó.
-     * Output: Map<UserId, Rank> (Rank càng nhỏ quyền càng to)
-     */
-    private Map<String, Integer> buildPowerMap(FileNode targetNode) {
-        Map<String, Integer> powerMap = new HashMap<>();
-
-        // 1. Lấy toàn bộ tổ tiên (Ancestors) + Node hiện tại
-        // Sắp xếp từ Gốc -> Ngọn (Ancestors list thường lưu từ root -> parent)
-        List<String> lineageIds = new ArrayList<>(targetNode.getAncestors());
-        lineageIds.add(targetNode.getId());
-
-        List<FileNode> lineageNodes = fileNodeRepository.findAllById(lineageIds);
-
-        // Map để truy xuất nhanh node theo ID
-        Map<String, FileNode> nodeMap = lineageNodes.stream()
-                .collect(Collectors.toMap(FileNode::getId, node -> node));
-
-        // 2. Duyệt từ trên xuống dưới để gán Rank
-        // Root có baseRank = 0, Cấp 1 = 10, Cấp 2 = 20...
-        int currentBaseRank = 0;
-
-        for (String nodeId : lineageIds) {
-            FileNode node = nodeMap.get(nodeId);
-            if (node == null) continue;
-
-            // A. Quyền tối thượng: OWNER của Node này
-            // Nếu User này đã có rank cao hơn (từ cấp cha) thì giữ nguyên, không thì gán rank mới
-            powerMap.putIfAbsent(node.getOwnerId(), currentBaseRank);
-
-            // B. Quyền cấp phó: EDITOR của Node này
-            if (node.getPermissions() != null) {
-                for (FileNode.FilePermission perm : node.getPermissions()) {
-                    if (perm.getRole() == EPermissionRole.EDITOR) {
-                        // Editor thua Owner 1 điểm (Ví dụ: Owner=0, Editor=1)
-                        powerMap.putIfAbsent(perm.getUserId(), currentBaseRank + 1);
-                    }
-                }
-            }
-
-            // Xuống cấp tiếp theo -> Tăng Rank (Quyền lực giảm đi)
-            currentBaseRank += GENERATION_GAP;
-        }
-
-        return powerMap;
-    }
-
-    /**
-     * Kiểm tra xem Actor (người thực hiện) có đủ quyền lực để tác động lên Target (nạn nhân) không.
-     * Quy tắc: Rank(Actor) <= Rank(Target).
-     * (Vị vua có thể chém thường dân, nhưng thường dân không thể chém vua)
-     */
-    private void validatePowerCheck(String actorId, String targetUserId, Map<String, Integer> powerMap) {
-        // 1. Xác định Rank của Actor
-        // Nếu Actor không có trong bản đồ -> Rank vô cực (Không có quyền gì cả)
-        Integer actorRank = powerMap.getOrDefault(actorId, Integer.MAX_VALUE);
-
-        // Actor phải có ít nhất quyền Editor tại node hiện tại (Rank < Max)
-        // Trong thực tế, logic check quyền Edit đã làm ở ngoài, nhưng check lại cho chắc
-        if (actorRank == Integer.MAX_VALUE) {
-            throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
-        }
-
-        // 2. Xác định Rank của Target User (Người đang bị chỉnh sửa quyền)
-        Integer targetRank = powerMap.getOrDefault(targetUserId, Integer.MAX_VALUE);
-
-        // 3. So sánh
-        // Nếu Target có quyền lực cao hơn (Rank nhỏ hơn) -> Chặn ngay
-        if (targetRank < actorRank) {
-            throw new AppException(AppErrorCode.NOT_ENOUGH_PERMISSION);
-        }
-    }
+    private final PermissionService permissionService;
+    private final ActivityLogService activityLogService;
 
     // ==========================================================
     // 2. CHỨC NĂNG CHIA SẺ (SHARE)
     // ==========================================================
-
     @Transactional
     public void shareFile(String fileId, ShareFileRequest request, String actorId) {
         FileNode node = fileNodeRepository.findById(fileId)
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // 1. Kiểm tra quyền cơ bản (Phải là EDITOR hoặc OWNER mới được share)
-        if (!hasEditAccess(node, actorId)) {
+        if (!permissionService.hasEditAccess(node, actorId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -128,10 +55,10 @@ public class FileShareService {
         String targetUserId = targetUser.getId();
 
         // 2. [QUAN TRỌNG] Xây dựng Bản đồ Quyền lực
-        Map<String, Integer> powerMap = buildPowerMap(node);
+        Map<String, Integer> powerMap = permissionService.buildPowerMap(node);
 
         // 3. [QUAN TRỌNG] Check: Actor có được phép chỉnh sửa Target không?
-        validatePowerCheck(actorId, targetUserId, powerMap);
+        permissionService.validatePowerCheck(actorId, targetUserId, powerMap);
 
         // 4. [QUAN TRỌNG] Check: Target có phải là Owner của node này không?
         if (targetUserId.equals(node.getOwnerId())) {
@@ -156,14 +83,17 @@ public class FileShareService {
 
         // 7. Thực hiện chia sẻ (sau khi đã validate toàn bộ)
         applySharePermissionRecursive(node, targetUserId, request.getRole(), true, actorId);
+
+        activityLogService.logShared(node, targetUser, request.getRole().name(), actorId);
     }
 
     /**
-     * VALIDATE TOÀN BỘ PHẠM VI: Kiểm tra actor có quyền trên tất cả các node sẽ bị ảnh hưởng
+     * VALIDATE TOÀN BỘ PHẠM VI: Kiểm tra actor có quyền trên tất cả các node sẽ
+     * bị ảnh hưởng
      */
     private void validateShareScope(FileNode startNode, String targetUserId,
-                                    EPermissionRole newRole, String actorId,
-                                    Map<String, Integer> powerMap) {
+            EPermissionRole newRole, String actorId,
+            Map<String, Integer> powerMap) {
         // A. Collect tất cả các node sẽ bị ảnh hưởng (bao gồm downward và upward)
         Set<String> affectedNodes = new HashSet<>();
 
@@ -177,9 +107,11 @@ public class FileShareService {
         // B. Kiểm tra actor có quyền EDIT trên tất cả các affectedNodes không
         for (String nodeId : affectedNodes) {
             FileNode affectedNode = fileNodeRepository.findById(nodeId).orElse(null);
-            if (affectedNode == null) continue;
+            if (affectedNode == null) {
+                continue;
+            }
 
-            if (!hasEditAccess(affectedNode, actorId)) {
+            if (!permissionService.hasEditAccess(affectedNode, actorId)) {
                 throw new AppException(AppErrorCode.CANNOT_SHARE_IN_SCOPE);
             }
         }
@@ -201,15 +133,18 @@ public class FileShareService {
     }
 
     /**
-     * Thu thập các node cha sẽ bị ảnh hưởng (khi quyền mới hạn chế hơn quyền cũ)
+     * Thu thập các node cha sẽ bị ảnh hưởng (khi quyền mới hạn chế hơn quyền
+     * cũ)
      */
     private void collectAffectedParents(FileNode startNode, String targetUserId,
-                                        EPermissionRole newRole, Set<String> collector) {
+            EPermissionRole newRole, Set<String> collector) {
         FileNode current = startNode;
 
         while (current.getParentId() != null) {
             FileNode parent = fileNodeRepository.findById(current.getParentId()).orElse(null);
-            if (parent == null) break;
+            if (parent == null) {
+                break;
+            }
 
             // Kiểm tra targetUser có quyền ở parent không
             Optional<FileNode.FilePermission> parentPerm = parent.getPermissions().stream()
@@ -305,72 +240,15 @@ public class FileShareService {
     }
 
     // ==========================================================
-    // 3. CHECK QUYỀN (HELPER CẬP NHẬT)
-    // ==========================================================
-
-    public boolean hasReadAccess(FileNode node, String userId) {
-        // 1. Chính chủ
-        if (node.getOwnerId().equals(userId)) return true;
-
-        // 2. Public
-        if (node.getPublicAccess() != EPublicAccess.PRIVATE) return true;
-
-        // 3. Check trong list Permission
-        if (node.getPermissions().stream().anyMatch(p -> p.getUserId().equals(userId) && p.getRole().canView())) {
-            return true;
-        }
-
-        // 4. [QUAN TRỌNG] Check tổ tiên (The Ancestor Check)
-        // Nếu user là Owner/Editor của bất kỳ node cha nào -> Auto có quyền
-        // Lưu ý: Việc này có thể tốn performance nếu query DB nhiều.
-        // -> Nên dùng PowerMap hoặc check ancestors ID trong DB nếu có bảng permission phẳng.
-        // Để đơn giản và chính xác nhất theo yêu cầu "Liên bang":
-        return checkAncestorPower(node, userId);
-    }
-
-    public boolean hasEditAccess(FileNode node, String userId) {
-        if (node.getOwnerId().equals(userId)) return true;
-        if (node.getPublicAccess() == EPublicAccess.PUBLIC_EDIT) return true;
-
-        if (node.getPermissions().stream().anyMatch(p -> p.getUserId().equals(userId) && p.getRole().canEdit())) {
-            return true;
-        }
-
-        // Check tổ tiên
-        return checkAncestorPower(node, userId);
-    }
-
-    /**
-     * Kiểm tra xem user có phải là "Thái Thượng Hoàng" (Owner/Editor cấp cao) không
-     */
-    private boolean checkAncestorPower(FileNode node, String userId) {
-        if (node.getAncestors() == null || node.getAncestors().isEmpty()) return false;
-
-        List<FileNode> ancestors = fileNodeRepository.findAllById(node.getAncestors());
-
-        for (FileNode ancestor : ancestors) {
-            // Nếu là Owner của bất kỳ cha nào -> Full quyền
-            if (ancestor.getOwnerId().equals(userId)) return true;
-
-            // Nếu là Editor của cha -> Có quyền (Giả sử Editor cha có quyền sinh sát con)
-            boolean isEditor = ancestor.getPermissions().stream()
-                    .anyMatch(p -> p.getUserId().equals(userId) && p.getRole() == EPermissionRole.EDITOR);
-            if (isEditor) return true;
-        }
-        return false;
-    }
-
-    // ==========================================================
 // 3. GỠ BỎ QUYỀN (REVOKE) - UPDATED
 // ==========================================================
-
     @Transactional
     public void revokeAccess(String fileId, String email, String currentUserId) {
         FileNode node = fileNodeRepository.findById(fileId)
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // 1. Kiểm tra quyền cơ bản
-        if (!hasEditAccess(node, currentUserId)) {
+        if (!permissionService.hasEditAccess(node, currentUserId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -379,10 +257,10 @@ public class FileShareService {
         String targetUserId = targetUser.getId();
 
         // 2. Xây dựng Power Map để kiểm tra quyền lực
-        Map<String, Integer> powerMap = buildPowerMap(node);
+        Map<String, Integer> powerMap = permissionService.buildPowerMap(node);
 
         // 3. Kiểm tra Actor có quyền revoke Target không
-        validatePowerCheck(currentUserId, targetUserId, powerMap);
+        permissionService.validatePowerCheck(currentUserId, targetUserId, powerMap);
 
         // 4. Kiểm tra Target có phải là Owner của node hiện tại không
         if (targetUserId.equals(node.getOwnerId())) {
@@ -403,13 +281,15 @@ public class FileShareService {
 
         // 7. Thực hiện revoke (sau khi đã validate)
         applyRevokePermissionRecursive(node, targetUserId, true, currentUserId);
+
+        activityLogService.logRevoked(node, targetUser, currentUserId);
     }
 
     /**
      * Validate toàn bộ phạm vi sẽ bị ảnh hưởng bởi revoke
      */
     private void validateRevokeScope(FileNode startNode, String targetUserId,
-                                     String actorId, Map<String, Integer> powerMap) {
+            String actorId, Map<String, Integer> powerMap) {
         Set<String> affectedNodes = new HashSet<>();
 
         // Downward: Tất cả node con (bao gồm cả startNode)
@@ -422,9 +302,11 @@ public class FileShareService {
         // Kiểm tra actor có quyền EDIT trên tất cả affectedNodes không
         for (String nodeId : affectedNodes) {
             FileNode affectedNode = fileNodeRepository.findById(nodeId).orElse(null);
-            if (affectedNode == null) continue;
+            if (affectedNode == null) {
+                continue;
+            }
 
-            if (!hasEditAccess(affectedNode, actorId)) {
+            if (!permissionService.hasEditAccess(affectedNode, actorId)) {
                 throw new AppException(AppErrorCode.CANNOT_REVOKE_IN_SCOPE);
             }
         }
@@ -438,7 +320,9 @@ public class FileShareService {
 
         while (current.getParentId() != null) {
             FileNode parent = fileNodeRepository.findById(current.getParentId()).orElse(null);
-            if (parent == null) break;
+            if (parent == null) {
+                break;
+            }
 
             // Kiểm tra targetUser có quyền ở parent không
             boolean hasPermission = parent.getPermissions().stream()
@@ -458,7 +342,7 @@ public class FileShareService {
      * Hàm đệ quy gỡ quyền (đã được validate)
      */
     private void applyRevokePermissionRecursive(FileNode node, String targetUserId,
-                                                boolean checkUpward, String actorId) {
+            boolean checkUpward, String actorId) {
         // 1. Xóa quyền khỏi node hiện tại
         boolean removed = node.getPermissions().removeIf(p -> p.getUserId().equals(targetUserId));
 
@@ -498,13 +382,14 @@ public class FileShareService {
 // ==========================================================
 // 4. THAY ĐỔI QUYỀN PUBLIC - UPDATED
 // ==========================================================
-
     @Transactional
     public void changePublicAccess(String fileId, EPublicAccess newAccess, String currentUserId) {
         FileNode node = fileNodeRepository.findById(fileId)
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
-        if (!hasEditAccess(node, currentUserId)) {
+        String oldAccess = node.getPublicAccess().name();
+
+        if (!permissionService.hasEditAccess(node, currentUserId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -513,13 +398,15 @@ public class FileShareService {
 
         // 3. Thực hiện thay đổi (sau khi đã validate)
         applyPublicAccessRecursive(node, newAccess, true, currentUserId);
+
+        activityLogService.logPublicAccessChanged(node, oldAccess, newAccess.name(), currentUserId);
     }
 
     /**
      * Validate toàn bộ phạm vi sẽ bị ảnh hưởng bởi thay đổi public access
      */
     private void validatePublicAccessScope(FileNode startNode, EPublicAccess newAccess,
-                                           String actorId) {
+            String actorId) {
         Set<String> affectedNodes = new HashSet<>();
 
         // Downward: Tất cả node con (không bao gồm startNode - đã check owner)
@@ -532,9 +419,11 @@ public class FileShareService {
         // Kiểm tra actor có phải là OWNER của tất cả affectedNodes không
         for (String nodeId : affectedNodes) {
             FileNode affectedNode = fileNodeRepository.findById(nodeId).orElse(null);
-            if (affectedNode == null) continue;
+            if (affectedNode == null) {
+                continue;
+            }
 
-            if (!hasEditAccess(affectedNode, actorId)) {
+            if (!permissionService.hasEditAccess(affectedNode, actorId)) {
                 throw new AppException(AppErrorCode.CANNOT_CHANGE_IN_SCOPE);
             }
         }
@@ -544,12 +433,14 @@ public class FileShareService {
      * Thu thập các node cha sẽ bị ảnh hưởng bởi thay đổi public access
      */
     private void collectParentsForPublicAccess(FileNode startNode, EPublicAccess newAccess,
-                                               Set<String> collector) {
+            Set<String> collector) {
         FileNode current = startNode;
 
         while (current.getParentId() != null) {
             FileNode parent = fileNodeRepository.findById(current.getParentId()).orElse(null);
-            if (parent == null) break;
+            if (parent == null) {
+                break;
+            }
 
             // Nếu public access của parent cao hơn (level lớn hơn) newAccess
             // thì parent sẽ bị hạ xuống newAccess
@@ -567,7 +458,7 @@ public class FileShareService {
      * Hàm đệ quy thay đổi public access (đã được validate)
      */
     private void applyPublicAccessRecursive(FileNode node, EPublicAccess newAccess,
-                                            boolean checkUpward, String actorId) {
+            boolean checkUpward, String actorId) {
         // 1. Apply thay đổi
         node.setPublicAccess(newAccess);
         fileNodeRepository.save(node);
@@ -597,36 +488,9 @@ public class FileShareService {
         }
     }
 
-
-
-    /**
-     * Kiểm tra xem User có phải là "Lãnh Chúa" (Chủ sở hữu tối cao) của node này không.
-     * Return True nếu: User là Owner của Node HOẶC Owner của bất kỳ Tổ tiên nào.
-     */
-    public boolean isLandlord(FileNode node, String userId) {
-        // 1. Chính chủ folder này
-        if (node.getOwnerId().equals(userId)) return true;
-
-        // 2. Chủ của các đời tổ tiên
-        return checkAncestorOwner(node, userId);
-    }
-
-    private boolean checkAncestorOwner(FileNode node, String userId) {
-        if (node.getAncestors() == null || node.getAncestors().isEmpty()) return false;
-
-        // Query Batch để tối ưu (Thay vì loop query)
-        List<FileNode> ancestors = fileNodeRepository.findAllById(node.getAncestors());
-
-        for (FileNode ancestor : ancestors) {
-            if (ancestor.getOwnerId().equals(userId)) return true;
-        }
-        return false;
-    }
-
     // ==========================================================
     // HELPER FUNCTIONS
     // ==========================================================
-
     private void addOrUpdatePermission(FileNode node, String userId, EPermissionRole role) {
         Optional<FileNode.FilePermission> existing = node.getPermissions().stream()
                 .filter(p -> p.getUserId().equals(userId))
@@ -642,6 +506,5 @@ public class FileShareService {
                     .build());
         }
     }
-
 
 }

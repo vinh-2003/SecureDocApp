@@ -19,6 +19,7 @@ import com.securedoc.backend.security.jwt.JwtUtils;
 import com.securedoc.backend.security.services.RefreshTokenService;
 import com.securedoc.backend.security.services.UserDetailsImpl;
 import lombok.RequiredArgsConstructor;
+import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +27,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.securedoc.backend.enums.EAccessAction;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -44,132 +46,187 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final VerificationTokenRepository tokenRepository;
     private final EmailService emailService;
+    private final AccessLogService accessLogService;
+    private final ModelMapper modelMapper; // Inject ModelMapper
 
     @Value("${app.frontend-url}")
-    private String frontendUrl; // Sẽ lấy giá trị: http://localhost:3000 (hoặc domain thật)
+    private String frontendUrl;
 
     @Value("${app.security.max-failed-attempts}")
-    private int maxFailedAttempts; // 5
+    private int maxFailedAttempts;
 
     @Value("${app.security.lock-time-duration-minutes}")
-    private long lockTimeDuration; // 30
+    private long lockTimeDuration;
 
     @Value("${app.security.token-expiration-minutes}")
-    private long tokenExpirationMinutes; // 15
+    private long tokenExpirationMinutes;
 
     @Value("${app.google.client-id}")
     private String googleClientId;
 
     // --- 1. ĐĂNG NHẬP ---
     public TokenResponse authenticateUser(LoginRequest loginRequest) {
-        User user = userRepository.findByUsername(loginRequest.getUsername())
-                .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
-
-        // Kiểm tra khóa
-        if (!user.isAccountNonLocked()) {
-            if (user.getLockTime() != null &&
-                    user.getLockTime().plusMinutes(lockTimeDuration).isBefore(LocalDateTime.now())) {
-                // Hết hạn khóa -> Mở lại
-                user.setAccountNonLocked(true);
-                user.setLockTime(null);
-                user.setFailedLoginAttempts(0);
-                userRepository.save(user);
-            } else {
-                throw new AppException(AppErrorCode.ACCOUNT_LOCKED);
-            }
-        }
-
-        // Kiểm tra kích hoạt
-        if (!user.isEnabled()) {
-            throw new AppException(AppErrorCode.ACCOUNT_NOT_ENABLED);
-        }
+        String username = loginRequest.getUsername();
 
         try {
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
 
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-
-            // Login thành công -> Reset bộ đếm lỗi
-            if (user.getFailedLoginAttempts() > 0) {
-                user.setFailedLoginAttempts(0);
-                userRepository.save(user);
+            // --- LOGIC KIỂM TRA KHÓA ---
+            if (!user.isAccountNonLocked()) {
+                // Trường hợp 1: Khóa tạm thời (do đăng nhập sai) -> Có lockTime
+                if (user.getLockTime() != null) {
+                    if (user.getLockTime().plusMinutes(lockTimeDuration).isBefore(LocalDateTime.now())) {
+                        // Hết thời gian khóa -> Mở lại
+                        unlockUser(user);
+                    } else {
+                        throw new AppException(AppErrorCode.ACCOUNT_LOCKED); // Vẫn còn trong thời gian khóa
+                    }
+                } else {
+                    // Trường hợp 2: Khóa vĩnh viễn (do Admin khóa) -> lockTime == null
+                    throw new AppException(AppErrorCode.ACCOUNT_LOCKED_BY_ADMIN); // Admin đã khóa, user không thể tự mở
+                }
             }
 
-            String jwt = jwtUtils.generateJwtToken(authentication);
-            RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
-            List<String> roles = userDetails.getAuthorities().stream()
-                    .map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+            // Kiểm tra kích hoạt email
+            if (!user.isEnabled()) {
+                throw new AppException(AppErrorCode.ACCOUNT_NOT_ENABLED);
+            }
 
-            return TokenResponse.builder()
-                    .accessToken(jwt)
-                    .refreshToken(refreshToken.getToken())
-                    .userId(userDetails.getId())
-                    .username(userDetails.getUsername())
-                    .email(userDetails.getEmail())
-                    .fullName(user.getFullName())
-                    .avatarUrl(user.getAvatarUrl())
-                    .roles(roles)
-                    .build();
+
+                Authentication authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+
+                // Login thành công -> Reset bộ đếm lỗi
+                if (user.getFailedLoginAttempts() > 0) {
+                    unlockUser(user);
+                }
+
+                String jwt = jwtUtils.generateJwtToken(authentication);
+                RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
+                List<String> roles = userDetails.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+
+                accessLogService.logAccess(
+                        user.getId(),
+                        user.getUsername(),
+                        EAccessAction.LOGIN,
+                        true,
+                        null,
+                        accessLogService.getClientIp(),
+                        accessLogService.getUserAgent()
+                );
+
+                return TokenResponse.builder()
+                        .accessToken(jwt)
+                        .refreshToken(refreshToken.getToken())
+                        .userId(userDetails.getId())
+                        .username(userDetails.getUsername())
+                        .email(userDetails.getEmail())
+                        .fullName(user.getFullName())
+                        .avatarUrl(user.getAvatarUrl())
+                        .roles(roles)
+                        .build();
 
         } catch (Exception e) {
-            // Login thất bại -> Tăng số lần sai
-            increaseFailedAttempts(user);
+            String failedUserId = userRepository.findByUsername(username)
+                    .map(User::getId)
+                    .orElse(null);
+
+            accessLogService.logAccess(
+                    failedUserId,
+                    username,
+                    EAccessAction.LOGIN,
+                    false,
+                    e.getMessage(),
+                    accessLogService.getClientIp(),
+                    accessLogService.getUserAgent()
+            );
+
+            // Login thất bại -> Tăng số lần sai (Chỉ áp dụng nếu user chưa bị khóa bởi admin)
+            userRepository.findByUsername(username).ifPresent(user -> {
+                if (user.isAccountNonLocked()) {
+                    increaseFailedAttempts(user);
+                }
+            });
             throw e;
         }
+    }
+
+    private void unlockUser(User user) {
+        user.setAccountNonLocked(true);
+        user.setLockTime(null);
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
     }
 
     private void increaseFailedAttempts(User user) {
         int newFailAttempts = user.getFailedLoginAttempts() + 1;
         user.setFailedLoginAttempts(newFailAttempts);
 
-        // So sánh với biến cấu hình maxFailedAttempts
         if (newFailAttempts >= maxFailedAttempts) {
             user.setAccountNonLocked(false);
-            user.setLockTime(LocalDateTime.now());
+            user.setLockTime(LocalDateTime.now()); // Set thời gian để biết đây là khóa tạm thời
         }
         userRepository.save(user);
     }
 
-    // --- 2. ĐĂNG KÝ ---
+    // --- 2. ĐĂNG KÝ (Dùng ModelMapper) ---
     public void registerUser(RegisterRequest signUpRequest) {
-        // Validate trùng lặp
         if (userRepository.existsByUsername(signUpRequest.getUsername())) {
             throw new AppException(AppErrorCode.USER_EXISTED);
         }
-
         if (userRepository.existsByEmail(signUpRequest.getEmail())) {
             throw new AppException(AppErrorCode.EMAIL_EXISTED);
         }
 
-        // Tạo User mới
-        User user = User.builder()
-                .username(signUpRequest.getUsername())
-                .email(signUpRequest.getEmail())
-                .password(passwordEncoder.encode(signUpRequest.getPassword()))
-                .fullName(signUpRequest.getFullName())
-                .isEnabled(false) // Mặc định chưa kích hoạt
-                .isAccountNonLocked(true)
-                .build();
+        // Sử dụng ModelMapper để map dữ liệu cơ bản
+        User user = modelMapper.map(signUpRequest, User.class);
 
-        // Gán Role mặc định là USER
+        // Set các trường logic security
+        user.setPassword(passwordEncoder.encode(signUpRequest.getPassword()));
+        user.setEnabled(false);
+        user.setAccountNonLocked(true);
+        user.setAccountNonExpired(true);
+        user.setCredentialsNonExpired(true);
+
+        // Gán Role
         Set<Role> roles = new HashSet<>();
-
-        // Tìm Role trong DB, nếu không có thì báo lỗi (Lỗi hệ thống nghiêm trọng nếu thiếu Role)
         Role userRole = roleRepository.findByName(ERole.ROLE_USER)
                 .orElseThrow(() -> new AppException(AppErrorCode.ROLE_NOT_FOUND));
-
         roles.add(userRole);
         user.setRoles(roles);
 
         userRepository.save(user);
 
-        // --- GỬI EMAIL XÁC THỰC ---
+        // Gửi email xác thực
+        sendVerificationEmail(user);
+    }
+
+    // --- 3. GỬI LẠI EMAIL XÁC THỰC (Mới) ---
+    public void resendVerificationEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
+
+        if (user.isEnabled()) {
+            throw new AppException(AppErrorCode.VERIFIED_ACCOUNT);
+        }
+
+        // Xóa token cũ nếu có để tránh rác
+        tokenRepository.deleteByUserAndType(user, VerificationToken.TokenType.VERIFY_EMAIL);
+
+        // Gửi lại email
+        sendVerificationEmail(user);
+    }
+
+    // Helper: Logic gửi email verify tách riêng để tái sử dụng
+    private void sendVerificationEmail(User user) {
         VerificationToken token = new VerificationToken(user, VerificationToken.TokenType.VERIFY_EMAIL, tokenExpirationMinutes);
         tokenRepository.save(token);
 
-        // Tạo Link động dựa trên frontendUrl
         String link = frontendUrl + "/verify-account?token=" + token.getToken();
 
         emailService.sendEmail(user.getEmail(), "Xác thực tài khoản SecureDoc",
@@ -179,7 +236,7 @@ public class AuthService {
                         "<p>Link này sẽ hết hạn sau " + tokenExpirationMinutes + " phút.</p>");
     }
 
-    // XÁC THỰC TÀI KHOẢN ---
+    // --- 4. XÁC THỰC TÀI KHOẢN ---
     public void verifyAccount(String tokenStr) {
         VerificationToken token = tokenRepository.findByToken(tokenStr)
                 .orElseThrow(() -> new AppException(AppErrorCode.INVALID_TOKEN));
@@ -189,28 +246,29 @@ public class AuthService {
         }
 
         User user = token.getUser();
-        user.setEnabled(true); // Kích hoạt
+        user.setEnabled(true);
         userRepository.save(user);
 
-        tokenRepository.delete(token); // Dùng xong xóa
+        tokenRepository.delete(token);
     }
 
+    // --- 5. QUÊN MẬT KHẨU (Gửi lại mail reset) ---
     public void forgotPassword(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
 
-        tokenRepository.deleteByUser(user);
+        // Xóa token reset pass cũ nếu có
+        tokenRepository.deleteByUserAndType(user, VerificationToken.TokenType.RESET_PASSWORD);
 
-        // Tạo token reset pass
         VerificationToken token = new VerificationToken(user, VerificationToken.TokenType.RESET_PASSWORD, tokenExpirationMinutes);
         tokenRepository.save(token);
 
-        // Tạo Link động
         String link = frontendUrl + "/reset-password?token=" + token.getToken();
 
         emailService.sendEmail(user.getEmail(), "Đặt lại mật khẩu SecureDoc",
                 "<p>Click vào link để đặt lại mật khẩu:</p>" +
-                        "<a href=\"" + link + "\">Đặt lại mật khẩu</a>");
+                        "<a href=\"" + link + "\">Đặt lại mật khẩu</a>" +
+                        "<p>Link này có hiệu lực trong " + tokenExpirationMinutes + " phút.</p>");
     }
 
     public void resetPassword(ResetPasswordRequest request) {
@@ -224,72 +282,76 @@ public class AuthService {
         User user = token.getUser();
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
 
-        // Mở khóa luôn nếu user đang bị khóa do nhập sai nhiều lần
-        user.setAccountNonLocked(true);
-        user.setFailedLoginAttempts(0);
-        user.setLockTime(null);
+        // Reset các trạng thái khóa nếu có
+        unlockUser(user);
 
         userRepository.save(user);
         tokenRepository.delete(token);
     }
 
-    // --- LOGIC ĐĂNG NHẬP GOOGLE ---
+    // --- 6. GOOGLE LOGIN ---
     public TokenResponse authenticateGoogleUser(GoogleLoginRequest request) {
         try {
-            // 1. Cấu hình Verifier để xác thực token với Google
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
                     .setAudience(Collections.singletonList(googleClientId))
                     .build();
 
-            // 2. Xác thực Token gửi từ Frontend
             GoogleIdToken idToken = verifier.verify(request.getIdToken());
             if (idToken == null) {
-                throw new AppException(AppErrorCode.INVALID_TOKEN); // Token Google không hợp lệ
+                throw new AppException(AppErrorCode.INVALID_TOKEN);
             }
 
-            // 3. Lấy thông tin user từ Token Google
             GoogleIdToken.Payload payload = idToken.getPayload();
             String email = payload.getEmail();
             String name = (String) payload.get("name");
             String pictureUrl = (String) payload.get("picture");
 
-            // 4. Kiểm tra xem email này đã có trong DB chưa
             User user;
             if (userRepository.existsByEmail(email)) {
-                // Case A: Đã tồn tại -> Lấy user ra
                 user = userRepository.findByEmail(email)
                         .orElseThrow(() -> new AppException(AppErrorCode.USER_NOT_FOUND));
-
-                // (Option) Cập nhật lại avatar/tên nếu muốn đồng bộ mỗi lần login
-                // user.setFullName(name);
-                // user.setAvatarUrl(pictureUrl);
-                // userRepository.save(user);
             } else {
-                // Case B: Chưa tồn tại -> Đăng ký tự động (JIT Provisioning)
                 user = createGoogleUser(email, name, pictureUrl);
             }
 
-            // 5. Kiểm tra trạng thái khóa (giống login thường)
-            if (!user.isAccountNonLocked() || !user.isEnabled()) {
-                throw new AppException(AppErrorCode.ACCOUNT_LOCKED); // Hoặc ACCOUNT_NOT_ENABLED
+            // Kiểm tra khóa: Logic giống hệt authenticateUser
+            if (!user.isAccountNonLocked()) {
+                if (user.getLockTime() != null) {
+                    // Check thời gian
+                    if (user.getLockTime().plusMinutes(lockTimeDuration).isBefore(LocalDateTime.now())) {
+                        unlockUser(user);
+                    } else {
+                        throw new AppException(AppErrorCode.ACCOUNT_LOCKED);
+                    }
+                } else {
+                    // Admin ban
+                    throw new AppException(AppErrorCode.ACCOUNT_LOCKED_BY_ADMIN);
+                }
             }
 
-            // 6. Sinh JWT của hệ thống (Access Token & Refresh Token)
-            // Lưu ý: User Google không có password để authenticateManager check,
-            // nên ta phải tự build UserDetails và sinh token thủ công.
+            if (!user.isEnabled()) {
+                throw new AppException(AppErrorCode.ACCOUNT_NOT_ENABLED);
+            }
 
             UserDetailsImpl userDetails = UserDetailsImpl.build(user);
-
-            // Tạo Authentication object giả lập (để JwtUtils dùng)
             Authentication authentication = new UsernamePasswordAuthenticationToken(
                     userDetails, null, userDetails.getAuthorities());
-
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
             String jwt = jwtUtils.generateJwtToken(authentication);
             RefreshToken refreshToken = refreshTokenService.createRefreshToken(user.getId());
             List<String> roles = userDetails.getAuthorities().stream()
                     .map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+
+            accessLogService.logAccess(
+                    user.getId(),
+                    user.getUsername(),
+                    EAccessAction.GOOGLE_LOGIN,
+                    true,
+                    null,
+                    accessLogService.getClientIp(),
+                    accessLogService.getUserAgent()
+            );
 
             return TokenResponse.builder()
                     .accessToken(jwt)
@@ -303,16 +365,34 @@ public class AuthService {
                     .build();
 
         } catch (AppException e) {
+            accessLogService.logAccess(
+                    null,
+                    "Google Login User",
+                    EAccessAction.GOOGLE_LOGIN,
+                    false,
+                    e.getMessage(),
+                    accessLogService.getClientIp(),
+                    accessLogService.getUserAgent()
+            );
             throw e;
         } catch (Exception e) {
             e.printStackTrace();
+
+            accessLogService.logAccess(
+                    null,
+                    "Google Login User",
+                    EAccessAction.GOOGLE_LOGIN,
+                    false,
+                    e.getMessage(),
+                    accessLogService.getClientIp(),
+                    accessLogService.getUserAgent()
+            );
+
             throw new AppException(AppErrorCode.UNCATEGORIZED_EXCEPTION);
         }
     }
 
-    // Hàm phụ: Tạo User mới từ thông tin Google
     private User createGoogleUser(String email, String name, String avatarUrl) {
-        // Tạo username từ phần trước @ của email (hoặc random nếu trùng)
         String baseUsername = email.split("@")[0];
         String username = baseUsername;
         int count = 1;
@@ -320,25 +400,20 @@ public class AuthService {
             username = baseUsername + count++;
         }
 
-        // Tạo password ngẫu nhiên (User Google không dùng pass này để login, nhưng DB cần not null)
-        String randomPassword = UUID.randomUUID().toString();
-
         User user = User.builder()
                 .username(username)
                 .email(email)
-                .password(passwordEncoder.encode(randomPassword)) // Hash pass ngẫu nhiên
+                .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                 .fullName(name)
                 .avatarUrl(avatarUrl)
-                .isEnabled(true) // Google đã verify email rồi nên kích hoạt luôn
+                .isEnabled(true)
                 .isAccountNonLocked(true)
                 .isAccountNonExpired(true)
                 .isCredentialsNonExpired(true)
                 .build();
 
         Set<Role> roles = new HashSet<>();
-        Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-                .orElseThrow(() -> new AppException(AppErrorCode.ROLE_NOT_FOUND));
-        roles.add(userRole);
+        roles.add(roleRepository.findByName(ERole.ROLE_USER).orElseThrow());
         user.setRoles(roles);
 
         return userRepository.save(user);

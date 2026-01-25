@@ -1,13 +1,20 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { NavLink } from 'react-router-dom';
-import { SIDEBAR_MENUS } from '../../constants';
+import { SIDEBAR_MENUS, ADMIN_SIDEBAR_MENUS } from '../../constants';
+import { AuthContext } from '../../context/AuthContext';
 
 /**
  * Navigation menu trong Sidebar
  */
 const SidebarNav = () => {
+    const { user } = useContext(AuthContext);
+
+    // Kiểm tra quyền Admin
+    const isAdmin = user?.roles?.includes('ROLE_ADMIN');
+
     return (
-        <nav className="flex-1 px-2 space-y-1">
+        <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
+            {/* Menu chính cho mọi User */}
             {SIDEBAR_MENUS.map((item) => (
                 <NavItem
                     key={item.path}
@@ -16,6 +23,25 @@ const SidebarNav = () => {
                     icon={item.icon}
                 />
             ))}
+
+            {/* Menu Admin (Chỉ hiện khi là Admin) */}
+            {isAdmin && (
+                <>
+                    <div className="pt-4 pb-2">
+                        <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                            Quản trị
+                        </p>
+                    </div>
+                    {ADMIN_SIDEBAR_MENUS.map((item) => (
+                        <NavItem
+                            key={item.path}
+                            path={item.path}
+                            name={item.name}
+                            icon={item.icon}
+                        />
+                    ))}
+                </>
+            )}
         </nav>
     );
 };

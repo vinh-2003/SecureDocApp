@@ -7,6 +7,8 @@ import com.securedoc.backend.entity.FileNode;
 import com.securedoc.backend.entity.FilePage;
 import com.securedoc.backend.entity.elasticsearch.PageIndex;
 import com.securedoc.backend.enums.EFileStatus;
+import com.securedoc.backend.exception.AppErrorCode;
+import com.securedoc.backend.exception.AppException;
 import com.securedoc.backend.repository.FileNodeRepository;
 import com.securedoc.backend.repository.FilePageRepository;
 import com.securedoc.backend.repository.elasticsearch.PageIndexRepository;
@@ -133,7 +135,7 @@ public class FileProcessorService {
     // Helper: Tải và giải mã (Copy logic từ StorageService sang hoặc public hàm ở StorageService để gọi)
     private byte[] downloadAndDecryptToBytes(FileNode fileNode, SecretKey fileKey) throws Exception {
         GridFSFile gridFSFile = gridFsTemplate.findOne(new Query(Criteria.where("_id").is(fileNode.getGridFsId())));
-        if (gridFSFile == null) throw new RuntimeException("File not found in GridFS");
+        if (gridFSFile == null) throw new AppException(AppErrorCode.GRIDFS_FILE_NOT_FOUND);
 
         // Lấy IV từ metadata
         byte[] iv = cryptoUtils.decodeBase64(fileNode.getEncryptionMetadata().getIv());

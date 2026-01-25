@@ -2,6 +2,8 @@ package com.securedoc.backend.controller;
 
 import com.securedoc.backend.dto.request.CreatePageRequestDto;
 import com.securedoc.backend.entity.PageAccessRequest;
+import com.securedoc.backend.exception.AppErrorCode;
+import com.securedoc.backend.exception.AppException;
 import com.securedoc.backend.payload.response.ApiResponse;
 import com.securedoc.backend.security.services.UserDetailsImpl;
 import com.securedoc.backend.service.PageRequestService;
@@ -51,6 +53,6 @@ public class PageRequestController {
         if (auth != null && auth.getPrincipal() instanceof UserDetailsImpl) {
             return ((UserDetailsImpl) auth.getPrincipal()).getId();
         }
-        throw new RuntimeException("Unauthorized: Không tìm thấy thông tin người dùng");
+        throw new AppException(AppErrorCode.USER_NOT_FOUND);
     }
 }

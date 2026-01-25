@@ -42,7 +42,7 @@ public class DocxConverterService {
             throw new AppException(AppErrorCode.READ_DOCX_FILE);
         } catch (Exception e) {
             log.error("Lỗi không xác định khi convert DOCX: ", e);
-            throw new RuntimeException("Không thể chuyển đổi file DOCX sang PDF. File có thể bị lỗi hoặc format không hỗ trợ.");
+            throw new AppException(AppErrorCode.DOCX_TO_PDF_CONVERT_ERROR);
         }
     }
 }

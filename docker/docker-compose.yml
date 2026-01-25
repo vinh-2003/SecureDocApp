@@ -35,28 +35,28 @@ services:
   # # ==========================================
   # # BACKEND (Spring Boot)
   # # ==========================================
-  backend:
-    container_name: doc_backend
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    # build pro -> cmt
-    ports:
-      - "8888:8888"
-    environment:
-      - SPRING_DATA_MONGODB_URI=mongodb://admin:admin_password@mongodb:27017/doc_management_db?authSource=admin
-      - SPRING_ELASTICSEARCH_URIS=http://elastic:dyLuGaROSNhYQ9Jvq9vD@elasticsearch:9200
-      - APP_FRONTEND_URL=http://localhost:3030
-      - APP_GOOGLE_CLIENT_ID=352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com
-      - TZ=Asia/Ho_Chi_Minh
-      - JAVA_TOOL_OPTIONS=-Duser.timezone=Asia/Ho_Chi_Minh
-      - SPRING_JACKSON_TIME_ZONE=Asia/Ho_Chi_Minh
-    depends_on:
-      - mongodb
-      - elasticsearch
-    networks:
-      - doc_network
-    restart: always
+  # backend:
+  #   container_name: doc_backend
+  #   build:
+  #     context: ../backend
+  #     dockerfile: Dockerfile
+  #   # build pro -> cmt
+  #   ports:
+  #     - "8888:8888"
+  #   environment:
+  #     - SPRING_DATA_MONGODB_URI=mongodb://admin:admin_password@mongodb:27017/doc_management_db?authSource=admin
+  #     - SPRING_ELASTICSEARCH_URIS=http://elastic:dyLuGaROSNhYQ9Jvq9vD@elasticsearch:9200
+  #     - APP_FRONTEND_URL=http://localhost:3030
+  #     - APP_GOOGLE_CLIENT_ID=352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com
+  #     - TZ=Asia/Ho_Chi_Minh
+  #     - JAVA_TOOL_OPTIONS=-Duser.timezone=Asia/Ho_Chi_Minh
+  #     - SPRING_JACKSON_TIME_ZONE=Asia/Ho_Chi_Minh
+  #   depends_on:
+  #     - mongodb
+  #     - elasticsearch
+  #   networks:
+  #     - doc_network
+  #   restart: always
 
   # # ==========================================
   # # FRONTEND (React + Nginx nội bộ)

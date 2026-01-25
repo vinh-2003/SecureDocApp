@@ -41,13 +41,14 @@ public class DatabaseInitializer {
             // 2. Khởi tạo Tài khoản Admin nếu chưa có
             if (!userRepository.existsByUsername("admin")) {
                 Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN).orElseThrow();
+                Role userRole = roleRepository.findByName(ERole.ROLE_USER).orElseThrow();
 
                 User admin = User.builder()
                         .username("admin")
                         .email("admin@securedoc.com")
                         .password(passwordEncoder.encode("admin123")) // Pass mặc định
                         .fullName("Super Administrator")
-                        .roles(Set.of(adminRole))
+                        .roles(Set.of(adminRole, userRole))
                         .isEnabled(true)
                         .isAccountNonLocked(true)
                         .isAccountNonExpired(true)

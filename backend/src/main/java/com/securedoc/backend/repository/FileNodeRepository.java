@@ -3,11 +3,14 @@ package com.securedoc.backend.repository;
 import com.securedoc.backend.entity.FileNode;
 import com.securedoc.backend.enums.EFileStatus;
 import com.securedoc.backend.enums.EFileType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.repository.Aggregation;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
+import com.securedoc.backend.dto.internal.StatsResult;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -114,4 +117,43 @@ public interface FileNodeRepository extends MongoRepository<FileNode, String> {
      * 3. trashedAt < thresholdTime
      */
     List<FileNode> findByIsDeletedTrueAndParentIdIsNullAndTrashedAtBefore(LocalDateTime thresholdTime);
+
+    // ==========================================
+    // --- ADMIN DASHBOARD STATS (Aggregation) ---
+    // ==========================================
+
+    // 1. Tính tổng dung lượng toàn hệ thống (Active Files)
+    @Aggregation(pipeline = {
+            "{ '$match': { 'type': 'FILE', 'isDeleted': false } }",
+            "{ '$group': { '_id': null, 'totalSize': { '$sum': '$size' } } }"
+    })
+    Long getSystemTotalSize();
+
+    // 2. Thống kê theo Trạng thái (AVAILABLE, FAILED...)
+    @Aggregation(pipeline = {
+            "{ '$match': { 'type': 'FILE', 'isDeleted': false } }",
+            "{ '$group': { '_id': '$status', 'count': { '$sum': 1 } } }"
+    })
+    List<StatsResult> getSystemStatusStats();
+
+    // 3. Thống kê theo Loại file (Top 5 MimeType phổ biến nhất)
+    @Aggregation(pipeline = {
+            "{ '$match': { 'type': 'FILE', 'isDeleted': false } }",
+            "{ '$group': { '_id': '$mimeType', 'count': { '$sum': 1 } } }",
+            "{ '$sort': { 'count': -1 } }",
+            "{ '$limit': 5 }"
+    })
+    List<StatsResult> getSystemMimeTypeStats();
+
+    // 4. Thống kê Thùng rác (Số lượng + Dung lượng)
+    @Aggregation(pipeline = {
+            "{ '$match': { 'type': 'FILE', 'isDeleted': true } }",
+            "{ '$group': { '_id': null, 'count': { '$sum': 1 }, 'totalSize': { '$sum': '$size' } } }"
+    })
+    StatsResult getSystemTrashStats();
+
+    // 5. Đếm số lượng thư mục
+    long countByTypeAndIsDeletedFalse(EFileType type);
+
+    Page<FileNode> findByStatusAndTypeAndIsDeletedFalse(EFileStatus status, EFileType type, Pageable pageable);
 }

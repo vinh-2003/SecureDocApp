@@ -20,7 +20,7 @@ public enum AppErrorCode {
     UNAUTHENTICATED(1006, "Vui lòng đăng nhập", HttpStatus.UNAUTHORIZED),
 
     // --- MỚI THÊM: Token & Active ---
-    ACCOUNT_NOT_ENABLED(1007, "Tài khoản chưa được kích hoạt. Vui lòng kiểm tra email xác thực.", HttpStatus.FORBIDDEN),
+    ACCOUNT_NOT_ENABLED(1007, "Tài khoản chưa được kích hoạt. Vui lòng kiểm tra email xác thực. Trong trường hợp bạn không thấy email, hãy liên hệ quản trị viên để được hỗ trợ.", HttpStatus.FORBIDDEN),
 
     INVALID_TOKEN(1008, "Mã xác thực không hợp lệ hoặc không tồn tại.", HttpStatus.BAD_REQUEST),
 
@@ -33,6 +33,12 @@ public enum AppErrorCode {
     UNAUTHORIZED(1012, "Bạn không có quyền truy cập", HttpStatus.FORBIDDEN),
     ROLE_NOT_FOUND(1013, "Không tìm thấy vai trò", HttpStatus.NOT_FOUND),
     KEY_NOT_FOUND(1014, "Không tìm thấy chìa khoá mở tài liệu", HttpStatus.NOT_FOUND),
+    VERIFIED_ACCOUNT(1015, "Tài khoản này đã được xác thực rồi.", HttpStatus.BAD_REQUEST),
+    ACCOUNT_LOCKED_BY_ADMIN(1016, "Tài khoản đã bị khóa do quản trị viên. Hãy liên hệ quản trị viên để mở khoá.", HttpStatus.FORBIDDEN),
+    PASSWORD_DUPLICATE(1017, "Mật khẩu mới không được trùng với mật khẩu cũ", HttpStatus.BAD_REQUEST),
+    SELF_LOCK_FORBIDDEN(1018, "Không thể tự khóa tài khoản của chính mình!", HttpStatus.BAD_REQUEST),
+    INVALID_ROLE(1019, "Role không hợp lệ.", HttpStatus.BAD_REQUEST),
+    CANNOT_CHANGE_SELF_PERMISSION(1020, "Không thể tự thay đổi quyền của chính mình!", HttpStatus.BAD_REQUEST),
 
 
 
@@ -69,6 +75,22 @@ public enum AppErrorCode {
     INVALID_UPLOAD_BATCH_REQUEST(2026, "Số lượng file và đường dẫn không khớp.", HttpStatus.BAD_REQUEST),
     READ_DOCX_FILE(2027, "Lỗi đọc dữ liệu file DOCX", HttpStatus.BAD_REQUEST),
     FOLDER_NOT_FOUND(2028, "Thư mục không tồn tại", HttpStatus.NOT_FOUND),
+    FILE_ALREADY_PROCESSED(2029, "File đã sẵn sàng, không cần xử lý lại.", HttpStatus.BAD_REQUEST),
+    FILE_NOT_ENCRYPTED_OR_MISSING_KEY(2030, "File chưa được mã hóa hoặc mất key.", HttpStatus.BAD_REQUEST),
+    FILE_NOT_ENCRYPTED(2031, "File chưa được mã hóa.", HttpStatus.BAD_REQUEST),
+    CANNOT_MOVE_FOLDER_INTO_ITSELF(2032, "Không thể di chuyển thư mục vào bên trong chính nó.", HttpStatus.BAD_REQUEST),
+    EMPTY_FILE_SAVE(2033, "Không thể lưu tệp rỗng.", HttpStatus.BAD_REQUEST),
+    GRIDFS_SAVE_ERROR(2034, "Lỗi khi lưu file vào hệ thống lưu trữ (GridFS).", HttpStatus.INTERNAL_SERVER_ERROR),
+    FILE_NOT_FOUND_INTERNAL(2035, "Không tìm thấy file.", HttpStatus.NOT_FOUND),
+    FILE_ENCRYPTION_METADATA_ERROR(2036, "File chưa được mã hóa hoặc lỗi metadata.", HttpStatus.BAD_REQUEST),
+    KEY_NOT_EXIST(2037, "Key không tồn tại.", HttpStatus.BAD_REQUEST),
+    AVATAR_UPLOAD_FAILURE(2038, "Lỗi upload avatar", HttpStatus.INTERNAL_SERVER_ERROR),
+    GRIDFS_FILE_NOT_FOUND(2039, "Không tìm thấy file trong hệ thống lưu trữ (GridFS).", HttpStatus.NOT_FOUND),
+    DOCX_TO_PDF_CONVERT_ERROR(2040, "Không thể chuyển đổi file DOCX sang PDF. File có thể bị lỗi hoặc định dạng không hỗ trợ.", HttpStatus.INTERNAL_SERVER_ERROR),
+
+
+
+
 
 
 

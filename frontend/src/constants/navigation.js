@@ -1,5 +1,5 @@
 import {
-    FaFolder, FaShareAlt, FaClock, FaTrash, FaUserShield
+    FaFolder, FaShareAlt, FaClock, FaTrash, FaUserShield, FaHistory, FaUsersCog, FaClipboardList, FaChartPie
 } from 'react-icons/fa';
 
 /**
@@ -32,6 +32,35 @@ export const SIDEBAR_MENUS = [
         name: 'Thùng rác',
         icon: FaTrash
     },
+    {
+        path: '/activities',
+        name: 'Lịch sử',
+        icon: FaHistory
+    },
+];
+
+/**
+ * Menu dành riêng cho Admin
+ */
+export const ADMIN_SIDEBAR_MENUS = [
+    {
+        path: '/admin/users',
+        name: 'Quản lý người dùng',
+        icon: FaUsersCog,
+        exact: true
+    },
+    {
+        path: '/admin/logs',
+        name: 'Nhật ký truy cập',
+        icon: FaClipboardList,
+        exact: true
+    },
+    {
+        path: '/admin/monitor',
+        name: 'Giám sát tài liệu',
+        icon: FaChartPie,
+        exact: true
+    }
 ];
 
 /**

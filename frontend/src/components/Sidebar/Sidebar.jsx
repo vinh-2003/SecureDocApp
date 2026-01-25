@@ -68,7 +68,7 @@ const Sidebar = () => {
     };
 
     const submitCreateFolder = async (e) => {
-        e.preventDefault();
+        // e.preventDefault();
         if (!newFolderName.trim()) return;
 
         const success = await handleCreateFolder(newFolderName);

@@ -1,28 +1,27 @@
 package com.securedoc.backend.service;
 
-import com.mongodb.BasicDBObject;
-import com.mongodb.DBObject;
-import com.mongodb.client.gridfs.model.GridFSFile;
-import com.securedoc.backend.dto.file.*;
-import com.securedoc.backend.dto.internal.StoredFileResult;
-import com.securedoc.backend.dto.response.BreadcrumbDto;
-import com.securedoc.backend.dto.response.RecentFileResponse;
-import com.securedoc.backend.dto.response.UserPermissions;
-import com.securedoc.backend.entity.*;
-import com.securedoc.backend.enums.EFileStatus;
-import com.securedoc.backend.enums.EFileType;
-import com.securedoc.backend.enums.EPermissionRole;
-import com.securedoc.backend.enums.EPublicAccess;
-import com.securedoc.backend.exception.AppErrorCode;
-import com.securedoc.backend.exception.AppException;
-import com.securedoc.backend.repository.*;
-import com.securedoc.backend.repository.elasticsearch.DocumentIndexRepository;
-import com.securedoc.backend.repository.elasticsearch.PageIndexRepository;
-import com.securedoc.backend.service.elasticsearch.DocumentIndexService;
-import com.securedoc.backend.utils.CryptoUtils;
-import lombok.Builder;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.SecretKey;
+
 import org.apache.tika.Tika;
 import org.bson.types.ObjectId;
 import org.modelmapper.ModelMapper;
@@ -44,15 +43,49 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
-import javax.crypto.SecretKey;
-import java.io.*;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DBObject;
+import com.mongodb.client.gridfs.model.GridFSFile;
+import com.securedoc.backend.dto.file.BatchUploadResponse;
+import com.securedoc.backend.dto.file.DashboardStatsResponse;
+import com.securedoc.backend.dto.file.FileDetailResponse;
+import com.securedoc.backend.dto.file.FileDownloadResponse;
+import com.securedoc.backend.dto.file.FileIdListRequest;
+import com.securedoc.backend.dto.file.FileMetadataRequest;
+import com.securedoc.backend.dto.file.FileMoveRequest;
+import com.securedoc.backend.dto.file.FileResponse;
+import com.securedoc.backend.dto.file.FolderCreateRequest;
+import com.securedoc.backend.dto.internal.StoredFileResult;
+import com.securedoc.backend.dto.response.BreadcrumbDto;
+import com.securedoc.backend.dto.response.RecentFileResponse;
+import com.securedoc.backend.dto.response.UserPermissions;
+import com.securedoc.backend.entity.FileKey;
+import com.securedoc.backend.entity.FileNode;
+import com.securedoc.backend.entity.FilePage;
+import com.securedoc.backend.entity.RecentFile;
+import com.securedoc.backend.entity.User;
+import com.securedoc.backend.entity.UserPageAccess;
+import com.securedoc.backend.enums.EFileStatus;
+import com.securedoc.backend.enums.EFileType;
+import com.securedoc.backend.enums.EPermissionRole;
+import com.securedoc.backend.enums.EPublicAccess;
+import com.securedoc.backend.exception.AppErrorCode;
+import com.securedoc.backend.exception.AppException;
+import com.securedoc.backend.repository.FileKeyRepository;
+import com.securedoc.backend.repository.FileNodeRepository;
+import com.securedoc.backend.repository.FilePageRepository;
+import com.securedoc.backend.repository.PageAccessRequestRepository;
+import com.securedoc.backend.repository.RecentFileRepository;
+import com.securedoc.backend.repository.UserPageAccessRepository;
+import com.securedoc.backend.repository.UserRepository;
+import com.securedoc.backend.repository.elasticsearch.DocumentIndexRepository;
+import com.securedoc.backend.repository.elasticsearch.PageIndexRepository;
+import com.securedoc.backend.service.elasticsearch.DocumentIndexService;
+import com.securedoc.backend.utils.CryptoUtils;
+
+import lombok.Builder;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -63,15 +96,16 @@ public class FileStorageService {
     private final DocumentIndexRepository documentIndexRepository;
     private final FileKeyRepository fileKeyRepository;
     private final RecentFileService recentFileService;
-    private final FileShareService fileShareService;
     private final UserRepository userRepository;
     private final CoreFileService coreFileService;
     private final FileProcessorService fileProcessorService;
-    private final FilePageRepository filePageRepository;       // <--- INJECT THÊM
-    private final UserPageAccessRepository userPageAccessRepository; // <--- INJECT THÊM
+    private final FilePageRepository filePageRepository;
+    private final UserPageAccessRepository userPageAccessRepository;
     private final RecentFileRepository recentFileRepository;
     private final PageAccessRequestRepository pageAccessRequestRepository;
     private final PageIndexRepository pageIndexRepository;
+    private final ActivityLogService activityLogService;
+    private final PermissionService permissionService;
     private final MongoTemplate mongoTemplate;
 
     private final ModelMapper modelMapper;
@@ -80,16 +114,14 @@ public class FileStorageService {
     private final Tika tika;
 
     private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
-            "application/pdf",                                                      // .pdf
-            "application/msword",                                                   // .doc
+            "application/pdf", // .pdf
+            "application/msword", // .doc
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" // .docx
     );
 
     /**
-     * 1. HÀM DÙNG CHUNG: KIỂM TRA QUYỀN & LẤY THÔNG TIN THỪA KẾ
-     * - Check tồn tại folder cha
-     * - Check quyền User
-     * - Lấy Ancestors, Permissions
+     * 1. HÀM DÙNG CHUNG: KIỂM TRA QUYỀN & LẤY THÔNG TIN THỪA KẾ - Check tồn tại
+     * folder cha - Check quyền User - Lấy Ancestors, Permissions
      */
     private FolderContext getParentContext(String parentId, String userId) {
         if (parentId == null || parentId.isEmpty()) {
@@ -110,7 +142,7 @@ public class FileStorageService {
         }
 
         // Security Check
-        if (!fileShareService.hasEditAccess(parent, userId)) {
+        if (!permissionService.hasEditAccess(parent, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -119,7 +151,6 @@ public class FileStorageService {
         ancestors.add(parent.getId());
 
         // --- [LOGIC MỚI] XỬ LÝ QUYỀN THỪA KẾ ---
-
         // 1. Lấy danh sách quyền gốc từ cha
         List<FileNode.FilePermission> inheritedPerms = parent.getPermissions() != null
                 ? new ArrayList<>(parent.getPermissions()) // Copy ra list mới để sửa
@@ -140,8 +171,9 @@ public class FileStorageService {
     }
 
     /**
-     * Lọc bỏ tất cả users là "Thái thượng hoàng" (owner/editor của tổ tiên) và owner hiện tại
-     * Chỉ giữ lại permissions cho người dùng thực sự ngoài hệ thống phân cấp
+     * Lọc bỏ tất cả users là "Thái thượng hoàng" (owner/editor của tổ tiên) và
+     * owner hiện tại Chỉ giữ lại permissions cho người dùng thực sự ngoài hệ
+     * thống phân cấp
      */
     private List<FileNode.FilePermission> filterOutHierarchyUsers(
             List<FileNode.FilePermission> permissions,
@@ -214,18 +246,18 @@ public class FileStorageService {
     }
 
     /**
-     * [CORE METHOD] HÀM LƯU TRỮ DÙNG CHUNG
-     * Chịu trách nhiệm: Tạo Key -> Lưu GridFS -> Lưu Metadata -> Index Elastic -> Trigger Async
+     * [CORE METHOD] HÀM LƯU TRỮ DÙNG CHUNG Chịu trách nhiệm: Tạo Key -> Lưu
+     * GridFS -> Lưu Metadata -> Index Elastic -> Trigger Async
      */
     private FileResponse internalStoreFile(
-            InputStream inputStream,    // Stream dữ liệu (Từ Upload hoặc từ File gốc đã giải mã)
+            InputStream inputStream, // Stream dữ liệu (Từ Upload hoặc từ File gốc đã giải mã)
             String fileName,
             String mimeType,
             long size,
-            FolderContext context,      // Context quyền hạn
-            String userId,              // Chủ sở hữu mới
+            FolderContext context, // Context quyền hạn
+            String userId, // Chủ sở hữu mới
             String description,
-            String extractedText        // Text đã trích xuất (nếu có)
+            String extractedText // Text đã trích xuất (nếu có)
     ) throws Exception {
 
         // 1. Tạo Key mã hóa mới (Mỗi file/bản sao có key riêng biệt -> Bảo mật cao)
@@ -284,6 +316,8 @@ public class FileStorageService {
             fileProcessorService.processFilePages(savedNode, fileKey);
         }
 
+        activityLogService.logFileUploaded(savedNode, userId);
+
         return convertToResponse(savedNode, userId);
     }
 
@@ -305,7 +339,8 @@ public class FileStorageService {
         String extractedContent = "";
         try (InputStream stream = file.getInputStream()) {
             extractedContent = tika.parseToString(stream);
-        } catch (Exception e) { /* Ignore */ }
+        } catch (Exception e) {
+            /* Ignore */ }
 
         // C. Gọi hàm chung
         // Mở stream mới để truyền vào hàm lưu (Vì stream cũ đã bị Tika đọc hết)
@@ -326,7 +361,6 @@ public class FileStorageService {
     // =========================================================================
     // CÁC HÀM PUBLIC (SERVICE METHODS)
     // =========================================================================
-
     /**
      * CREATE FOLDER
      */
@@ -356,6 +390,8 @@ public class FileStorageService {
 
         FileNode savedFolder = fileNodeRepository.save(folder);
         documentIndexService.saveToElasticsearch(savedFolder);
+
+        activityLogService.logFolderCreated(savedFolder, userId);
 
         return convertToResponse(savedFolder, userId);
     }
@@ -412,7 +448,9 @@ public class FileStorageService {
      */
     @Transactional
     public BatchUploadResponse uploadFolder(MultipartFile[] files, String[] paths, FileMetadataRequest metadata, String userId) {
-        if (files.length != paths.length) throw new AppException(AppErrorCode.INVALID_UPLOAD_BATCH_REQUEST);
+        if (files.length != paths.length) {
+            throw new AppException(AppErrorCode.INVALID_UPLOAD_BATCH_REQUEST);
+        }
 
         List<BatchUploadResponse.FileItemStatus> successList = new ArrayList<>();
         List<BatchUploadResponse.FileItemStatus> failList = new ArrayList<>();
@@ -486,7 +524,9 @@ public class FileStorageService {
     // Helper tìm hoặc tạo folder node (tối giản)
     private FileNode getOrCreateFolderNode(String name, FolderContext parentCtx, String userId) {
         Optional<FileNode> existing = fileNodeRepository.findByParentIdAndNameAndTypeAndOwnerIdAndIsDeletedFalse(parentCtx.getParentId(), name, EFileType.FOLDER, userId);
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent()) {
+            return existing.get();
+        }
 
         FileNode newFolder = FileNode.builder()
                 .name(name)
@@ -501,6 +541,9 @@ public class FileStorageService {
                 .build();
         FileNode savedFolder = fileNodeRepository.save(newFolder);
         documentIndexService.saveToElasticsearch(savedFolder);
+
+        activityLogService.logFolderCreated(savedFolder, userId);
+
         return savedFolder;
     }
 
@@ -514,13 +557,13 @@ public class FileStorageService {
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // 2. Check quyền
-        if (!fileShareService.hasEditAccess(node, userId)) {
+        if (!permissionService.hasEditAccess(node, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
         // 3. Chỉ retry nếu chưa AVAILABLE
         if (node.getStatus() == EFileStatus.AVAILABLE) {
-            throw new RuntimeException("File đã sẵn sàng, không cần xử lý lại.");
+            throw new AppException(AppErrorCode.FILE_ALREADY_PROCESSED);
         }
 
         // --- [MỚI] BƯỚC QUAN TRỌNG: DỌN DẸP DỮ LIỆU CŨ/LỖI ---
@@ -533,7 +576,7 @@ public class FileStorageService {
         // 4. Lấy lại Key giải mã
         FileNode.EncryptionMetadata encMeta = node.getEncryptionMetadata();
         if (encMeta == null || encMeta.getKeyId() == null) {
-            throw new RuntimeException("File chưa được mã hóa hoặc mất Key.");
+            throw new AppException(AppErrorCode.FILE_NOT_ENCRYPTED_OR_MISSING_KEY);
         }
 
         FileKey fileKeyEntity = fileKeyRepository.findById(encMeta.getKeyId())
@@ -569,7 +612,7 @@ public class FileStorageService {
         // 3. CHECK ENCRYPTION & DECRYPT (Giữ nguyên)
         FileNode.EncryptionMetadata encMeta = fileNode.getEncryptionMetadata();
         if (encMeta == null || !fileNode.isEncrypted()) {
-            throw new RuntimeException("File is not encrypted.");
+            throw new AppException(AppErrorCode.FILE_NOT_ENCRYPTED);
         }
 
         FileKey fileKeyEntity = fileKeyRepository.findById(encMeta.getKeyId())
@@ -580,7 +623,9 @@ public class FileStorageService {
 
         // Lấy file từ GridFS
         GridFSFile gridFSFile = gridFsTemplate.findOne(new Query(Criteria.where("_id").is(fileNode.getGridFsId())));
-        if (gridFSFile == null) throw new AppException(AppErrorCode.FILE_NOT_FOUND);
+        if (gridFSFile == null) {
+            throw new AppException(AppErrorCode.FILE_NOT_FOUND);
+        }
 
         GridFsResource gridFsResource = gridFsTemplate.getResource(gridFSFile);
         InputStream encryptedStream = gridFsResource.getInputStream();
@@ -589,6 +634,8 @@ public class FileStorageService {
 
         // 4. LOGGING
         recentFileService.logAccess(userId, fileId);
+
+        activityLogService.logDownloaded(fileNode, userId);
 
         return FileDownloadResponse.builder()
                 .fileName(fileNode.getName())
@@ -601,10 +648,10 @@ public class FileStorageService {
     // ==========================================
     // --- THÊM MỚI CHO DASHBOARD ---
     // ==========================================
-
     /**
-     * Lấy thống kê Dashboard (Dựa trên KHÔNG GIAN LƯU TRỮ)
-     * Tính toàn bộ file tại Root của User + File trong các thư mục con/cháu (kể cả do người khác tạo)
+     * Lấy thống kê Dashboard (Dựa trên KHÔNG GIAN LƯU TRỮ) Tính toàn bộ file
+     * tại Root của User + File trong các thư mục con/cháu (kể cả do người khác
+     * tạo)
      */
     public DashboardStatsResponse getDashboardStats(String userId) {
 
@@ -690,20 +737,19 @@ public class FileStorageService {
         if (parentId == null || parentId.isEmpty() || "root".equals(parentId)) {
             // Root của tôi thì đương nhiên tôi thấy hết
             nodes = fileNodeRepository.findByOwnerIdAndParentIdIsNullAndIsDeletedFalse(userId, sort);
-        }
-        // TRƯỜNG HỢP 2: LẤY TRONG FOLDER CON
+        } // TRƯỜNG HỢP 2: LẤY TRONG FOLDER CON
         else {
             // A. Lấy thông tin Folder cha để kiểm tra "giấy thông hành"
             FileNode parentFolder = fileNodeRepository.findByIdAndIsDeletedFalse(parentId)
                     .orElseThrow(() -> new AppException(AppErrorCode.FOLDER_NOT_FOUND));
 
             // B. Check quyền vào cửa (Gatekeeper)
-            if (!fileShareService.hasReadAccess(parentFolder, userId)) {
+            if (!permissionService.hasReadAccess(parentFolder, userId)) {
                 throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
             }
 
             // C. Phân loại thân phận: Lãnh chúa hay Khách?
-            if (fileShareService.isLandlord(parentFolder, userId)) {
+            if (permissionService.isLandlord(parentFolder, userId)) {
                 // === LÃNH CHÚA (Landlord) ===
                 // Thấy tất cả mọi thứ bên trong, bất kể quyền con là gì
                 // (Vì "Đất vua không ai có quyền rào lại")
@@ -739,12 +785,14 @@ public class FileStorageService {
             // 1. Lấy thông tin Node hiện tại
             FileNode node = fileNodeRepository.findByIdAndIsDeletedFalse(currentId).orElse(null);
 
-            if (node == null) break;
+            if (node == null) {
+                break;
+            }
 
             // 2. [FIX QUAN TRỌNG] Check quyền truy cập NGAY LẬP TỨC
             // Nếu không có quyền xem node này -> Dừng ngay, không thêm vào danh sách
             // (Xử lý trường hợp leo từ con lên cha, nhưng cha bị Private/Mất quyền)
-            if (!fileShareService.hasReadAccess(node, userId)) {
+            if (!permissionService.hasReadAccess(node, userId)) {
                 break;
             }
 
@@ -763,7 +811,6 @@ public class FileStorageService {
             // Ngăn việc leo quá cao ra khỏi phạm vi được chia sẻ.
             // Ví dụ: F1 (Private) -> F2 (Shared) -> F3 (Shared).
             // Nếu đang ở F3, leo lên F2 (OK). Leo lên F1 (Dừng).
-
             // Nếu node hiện tại đã là Root (không có cha) -> Dừng
             if (node.getParentId() == null) {
                 break;
@@ -776,7 +823,7 @@ public class FileStorageService {
                 // Ta dùng ID cha để check quyền trước khi gán currentId
                 FileNode parentNode = fileNodeRepository.findByIdAndIsDeletedFalse(node.getParentId()).orElse(null);
 
-                if (parentNode == null || !fileShareService.hasReadAccess(parentNode, userId)) {
+                if (parentNode == null || !permissionService.hasReadAccess(parentNode, userId)) {
                     // Không thấy cha hoặc không có quyền xem cha -> Dừng
                     break;
                 }
@@ -797,7 +844,9 @@ public class FileStorageService {
         Pageable pageable = PageRequest.of(page, limit);
         List<RecentFile> recentLogs = recentFileRepository.findAllByUserIdOrderByAccessedAtDesc(userId, pageable);
 
-        if (recentLogs.isEmpty()) return Collections.emptyList();
+        if (recentLogs.isEmpty()) {
+            return Collections.emptyList();
+        }
 
         // 2. Lấy danh sách ID file
         List<String> fileIds = recentLogs.stream()
@@ -815,11 +864,13 @@ public class FileStorageService {
                     FileNode node = fileMap.get(log.getFileId());
 
                     // A. Check tồn tại và trạng thái xoá
-                    if (node == null || node.isDeleted()) return null;
+                    if (node == null || node.isDeleted()) {
+                        return null;
+                    }
 
                     // B. [MỚI] Check quyền truy cập hiện tại (Real-time Security Check)
                     // Dù trong log có ghi là đã xem, nhưng giờ mất quyền thì không được hiện nữa
-                    if (!fileShareService.hasReadAccess(node, userId)) {
+                    if (!permissionService.hasReadAccess(node, userId)) {
                         return null;
                     }
 
@@ -855,7 +906,10 @@ public class FileStorageService {
                 FileNode nodeToMove = fileNodeRepository.findByIdAndIsDeletedFalse(id)
                         .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
-                if (!fileShareService.hasEditAccess(nodeToMove, userId)) {
+                String fromParentId = nodeToMove.getParentId();  // <-- LƯU VỊ TRÍ CŨ
+                String fromPath = buildLocationPath(nodeToMove.getAncestors());  // <-- LƯU PATH CŨ
+
+                if (!permissionService.hasEditAccess(nodeToMove, userId)) {
                     throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
                 }
 
@@ -869,9 +923,9 @@ public class FileStorageService {
                 }
 
                 if (nodeToMove.getType() == EFileType.FOLDER && targetParentId != null) {
-                    if (targetParentId.equals(nodeToMove.getId()) ||
-                            targetContext.getAncestors().contains(nodeToMove.getId())) {
-                        throw new RuntimeException("Không thể di chuyển thư mục vào bên trong chính nó.");
+                    if (targetParentId.equals(nodeToMove.getId())
+                            || targetContext.getAncestors().contains(nodeToMove.getId())) {
+                        throw new AppException(AppErrorCode.CANNOT_MOVE_FOLDER_INTO_ITSELF);
                     }
                 }
 
@@ -900,6 +954,9 @@ public class FileStorageService {
                 // G. Cập nhật ElasticSearch
                 documentIndexService.updateElasticsearchMetadata(savedNode);
 
+                String toPath = buildLocationPath(savedNode.getAncestors());
+                activityLogService.logMoved(savedNode, fromParentId, fromPath, toPath, userId);
+
                 // H. NẾU LÀ FOLDER: Lan truyền xuống con cháu
                 if (savedNode.getType() == EFileType.FOLDER) {
                     // Truyền node vừa lưu (đã mang quyền mới) vào để đệ quy
@@ -924,8 +981,8 @@ public class FileStorageService {
     }
 
     /**
-     * [MỚI] Chiến lược: Thừa kế hoàn toàn (Overwrite/Inherit)
-     * Quyền của Node sẽ y hệt quyền của Parent.
+     * [MỚI] Chiến lược: Thừa kế hoàn toàn (Overwrite/Inherit) Quyền của Node sẽ
+     * y hệt quyền của Parent.
      */
     private void applyInheritedPermissions(FileNode node, EPublicAccess parentPublic, List<FileNode.FilePermission> parentPerms) {
         // 1. Ghi đè Public Access
@@ -937,10 +994,10 @@ public class FileStorageService {
         if (parentPerms != null && !parentPerms.isEmpty()) {
             List<FileNode.FilePermission> newPerms = parentPerms.stream()
                     .map(p -> FileNode.FilePermission.builder()
-                            .userId(p.getUserId())
-                            .role(p.getRole())
-                            .sharedAt(p.getSharedAt()) // Giữ nguyên thời điểm share gốc hoặc renew
-                            .build())
+                    .userId(p.getUserId())
+                    .role(p.getRole())
+                    .sharedAt(p.getSharedAt()) // Giữ nguyên thời điểm share gốc hoặc renew
+                    .build())
                     .collect(Collectors.toList());
             node.setPermissions(newPerms);
         } else {
@@ -955,7 +1012,9 @@ public class FileStorageService {
         // 1. Tìm tất cả con cháu
         List<FileNode> descendants = fileNodeRepository.findAllByAncestorsContainingAndIsDeletedFalse(movedFolder.getId());
 
-        if (descendants.isEmpty()) return;
+        if (descendants.isEmpty()) {
+            return;
+        }
 
         // Chuẩn bị Ancestor Mới
         List<String> newParentAncestors = new ArrayList<>(movedFolder.getAncestors());
@@ -997,7 +1056,6 @@ public class FileStorageService {
     // =========================================================================
     // QUẢN LÝ THÙNG RÁC: MOVE TO TRASH, RESTORE, DELETE PERMANENTLY
     // =========================================================================
-
     /**
      * 1. CHUYỂN VÀO THÙNG RÁC (SOFT DELETE)
      */
@@ -1009,7 +1067,7 @@ public class FileStorageService {
         List<FileNode> toUpdateElastic = new ArrayList<>();
 
         for (FileNode node : nodes) {
-            if (!fileShareService.hasEditAccess(node, userId)) {
+            if (!permissionService.hasEditAccess(node, userId)) {
                 throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
             }
             // A. Nếu KHÔNG PHẢI Owner -> Trả về thư mục gốc của chủ sở hữu (Logic mới)
@@ -1025,6 +1083,9 @@ public class FileStorageService {
                 } else {
                     rescueRestoreOrphanFiles(node);
                 }
+
+                activityLogService.logTrashed(node, userId);
+
                 continue; // Xong node này, không save vào list trash
             }
 
@@ -1039,8 +1100,9 @@ public class FileStorageService {
             // 3. Tách khỏi cây thư mục hiện tại (Về Root thùng rác)
             node.setParentId(null);
 
-            // Lưu ý: Ancestors GIỮ NGUYÊN để phục vụ search/restore về sau
+            activityLogService.logTrashed(node, userId);
 
+            // Lưu ý: Ancestors GIỮ NGUYÊN để phục vụ search/restore về sau
             toSave.add(node);
             toUpdateElastic.add(node);
 
@@ -1064,43 +1126,45 @@ public class FileStorageService {
         List<FileNode> nodes = fileNodeRepository.findAllById(request.getIds());
 
         for (FileNode node : nodes) {
-                // Chỉ Owner mới được khôi phục
-                if (!fileShareService.hasEditAccess(node, userId)) {
-                    continue;
+            // Chỉ Owner mới được khôi phục
+            if (!permissionService.hasEditAccess(node, userId)) {
+                continue;
+            }
+
+            // 1. Gỡ bỏ trạng thái xóa (Bước chung)
+            node.setDeleted(false);
+            node.setTrashedAt(null);
+
+            // 2. PHÂN LOẠI TRƯỜNG HỢP (TH)
+            boolean isRootRestore = (node.getOriginalParentId() == null && node.getParentId() == null);
+
+            if (isRootRestore) {
+                // --- TH1: ROOT TỪ ĐẦU ---
+                node.setParentId(null);
+                node.setOriginalParentId(null);
+                fileNodeRepository.save(node);
+                documentIndexService.updateElasticsearchDeleteAndShareStatus(node);
+
+                // Khôi phục trạng thái con cháu (không đổi cấu trúc/quyền)
+                if (node.getType() == EFileType.FOLDER) {
+                    restoreDescendantsStatusOnly(node);
                 }
+            } else {
+                // Kiểm tra cha cũ có tồn tại và không bị xóa không
+                String parentId = node.getOriginalParentId() == null ? node.getParentId() : node.getOriginalParentId();
+                Optional<FileNode> oldParentOpt = fileNodeRepository.findByIdAndIsDeletedFalse(parentId);
 
-                // 1. Gỡ bỏ trạng thái xóa (Bước chung)
-                node.setDeleted(false);
-                node.setTrashedAt(null);
+                if (oldParentOpt.isEmpty()) {
+                    // --- TH2: CHA KHÔNG TỒN TẠI HOẶC ĐANG TRONG THÙNG RÁC ---
+                    handleOrphanRestore(node);
 
-                // 2. PHÂN LOẠI TRƯỜNG HỢP (TH)
-                boolean isRootRestore = (node.getOriginalParentId() == null && node.getParentId() == null);
-
-                if (isRootRestore) {
-                    // --- TH1: ROOT TỪ ĐẦU ---
-                    node.setParentId(null);
-                    node.setOriginalParentId(null);
-                    fileNodeRepository.save(node);
-                    documentIndexService.updateElasticsearchDeleteAndShareStatus(node);
-
-                    // Khôi phục trạng thái con cháu (không đổi cấu trúc/quyền)
-                    if (node.getType() == EFileType.FOLDER) {
-                        restoreDescendantsStatusOnly(node);
-                    }
                 } else {
-                    // Kiểm tra cha cũ có tồn tại và không bị xóa không
-                    String parentId = node.getOriginalParentId() == null ? node.getParentId() : node.getOriginalParentId();
-                    Optional<FileNode> oldParentOpt = fileNodeRepository.findByIdAndIsDeletedFalse(parentId);
-
-                    if (oldParentOpt.isEmpty()) {
-                        // --- TH2: CHA KHÔNG TỒN TẠI HOẶC ĐANG TRONG THÙNG RÁC ---
-                        handleOrphanRestore(node);
-
-                    } else {
-                        // --- TH3: CHA CÒN SỐNG ---
-                        handleParentAliveRestore(node, oldParentOpt.get(), userId);
-                    }
+                    // --- TH3: CHA CÒN SỐNG ---
+                    handleParentAliveRestore(node, oldParentOpt.get(), userId);
                 }
+            }
+
+            activityLogService.logRestored(node, userId);
         }
     }
 
@@ -1124,7 +1188,7 @@ public class FileStorageService {
      */
     private void handleParentAliveRestore(FileNode node, FileNode parent, String userId) {
         // 1. Kiểm tra user có quyền EDIT trong folder cha không
-        if (!fileShareService.hasEditAccess(parent, userId)) {
+        if (!permissionService.hasEditAccess(parent, userId)) {
             // Không có quyền thì không thể restore về vị trí cũ
             // Có thể throw exception hoặc fallback về TH2
             handleOrphanRestore(node);
@@ -1228,8 +1292,8 @@ public class FileStorageService {
     }
 
     /**
-     * Helper: Chỉ khôi phục trạng thái isDeleted cho con cháu.
-     * Chưa đụng vào parentId hay ancestors.
+     * Helper: Chỉ khôi phục trạng thái isDeleted cho con cháu. Chưa đụng vào
+     * parentId hay ancestors.
      */
     private void restoreDescendantsStatusOnly(FileNode parent) {
         // Tìm con cháu dựa trên ancestors (Lưu ý: phải tìm cả những thằng đang isDeleted=true)
@@ -1254,7 +1318,9 @@ public class FileStorageService {
     private void rescueRestoreOrphanFiles(FileNode parentFolder) {
         // 1. Tìm tất cả con cháu
         List<FileNode> descendants = fileNodeRepository.findAllByAncestorsContaining(parentFolder.getId());
-        if (descendants.isEmpty()) return;
+        if (descendants.isEmpty()) {
+            return;
+        }
 
         Map<String, String> ownerMap = descendants.stream()
                 .collect(Collectors.toMap(FileNode::getId, FileNode::getOwnerId));
@@ -1316,14 +1382,16 @@ public class FileStorageService {
                 rescueOrphanFiles(node, userId);
             }
 
+            activityLogService.logDeletedPermanently(node, userId);
+
             // 2. TIẾN HÀNH XOÁ
             deleteNodeAndDescendantsRecursively(node, userId);
         }
     }
 
     /**
-     * Helper: Xoá vật lý Node và toàn bộ dữ liệu liên quan
-     * [UPDATE FIX]: Thêm logic gọi Rescue đệ quy để cứu file lồng nhau.
+     * Helper: Xoá vật lý Node và toàn bộ dữ liệu liên quan [UPDATE FIX]: Thêm
+     * logic gọi Rescue đệ quy để cứu file lồng nhau.
      */
     private void deleteNodeAndDescendantsRecursively(FileNode rootNodeToDelete, String userId) {
 
@@ -1341,12 +1409,11 @@ public class FileStorageService {
         }
 
         // --- ĐOẠN DƯỚI NÀY GIỮ NGUYÊN LOGIC LỌC THÙNG RÁC CŨ ---
-
         // A. Tìm các "Rào chắn" (Barrier)
         Set<String> excludedRootIds = candidates.stream()
                 .filter(node -> node.isDeleted()
-                        && node.getParentId() == null
-                        && !node.getId().equals(rootNodeToDelete.getId()))
+                && node.getParentId() == null
+                && !node.getId().equals(rootNodeToDelete.getId()))
                 .map(FileNode::getId)
                 .collect(Collectors.toSet());
 
@@ -1355,12 +1422,16 @@ public class FileStorageService {
         finalTargets.add(rootNodeToDelete);
 
         for (FileNode node : candidates) {
-            if (excludedRootIds.contains(node.getId())) continue;
+            if (excludedRootIds.contains(node.getId())) {
+                continue;
+            }
 
             boolean isDescendantOfExcluded = node.getAncestors().stream()
                     .anyMatch(excludedRootIds::contains);
 
-            if (isDescendantOfExcluded) continue;
+            if (isDescendantOfExcluded) {
+                continue;
+            }
 
             finalTargets.add(node);
         }
@@ -1368,7 +1439,9 @@ public class FileStorageService {
         // 3. TIẾN HÀNH XOÁ
         for (FileNode item : finalTargets) {
             if (item.getType() == EFileType.FILE) {
-                if (item.getGridFsId() != null) deleteGridFsFile(item.getGridFsId());
+                if (item.getGridFsId() != null) {
+                    deleteGridFsFile(item.getGridFsId());
+                }
                 deleteEncryptionKey(item.getEncryptionMetadata());
                 cleanupFilePages(item.getId());
 
@@ -1436,24 +1509,32 @@ public class FileStorageService {
 
         for (FileNode node : allCandidates) {
             // A. Loại bỏ file trùng lặp (đã có trong map)
-            if (scopeMap.containsKey(node.getId())) continue;
+            if (scopeMap.containsKey(node.getId())) {
+                continue;
+            }
 
             // B. Loại bỏ file của chính mình (Tab này là "Được chia sẻ với tôi")
-            if (node.getOwnerId().equals(userId)) continue;
+            if (node.getOwnerId().equals(userId)) {
+                continue;
+            }
 
             // C. Loại bỏ file đã xóa
-            if (node.isDeleted()) continue;
+            if (node.isDeleted()) {
+                continue;
+            }
 
             // D. [QUAN TRỌNG] Check quyền thực tế (Real-time Check)
             // Nếu quyền đã bị gỡ -> Bỏ qua ngay
-            if (!fileShareService.hasReadAccess(node, userId)) {
+            if (!permissionService.hasReadAccess(node, userId)) {
                 continue;
             }
 
             scopeMap.put(node.getId(), node);
         }
 
-        if (scopeMap.isEmpty()) return new ArrayList<>();
+        if (scopeMap.isEmpty()) {
+            return new ArrayList<>();
+        }
 
         // 3. TÍNH TOÁN THỜI GIAN CƠ SỞ (BASE TIME)
         Map<String, LocalDateTime> effectiveTimeMap = new HashMap<>();
@@ -1484,7 +1565,9 @@ public class FileStorageService {
         // Visual Root: Là node mà cha của nó KHÔNG nằm trong danh sách hiển thị
         List<FileNode> rootNodes = scopeMap.values().stream()
                 .filter(node -> {
-                    if (node.getParentId() == null) return true;
+                    if (node.getParentId() == null) {
+                        return true;
+                    }
                     // Nếu cha có tồn tại nhưng user không có quyền xem cha -> Node này trở thành Root ảo
                     return !scopeMap.containsKey(node.getParentId());
                 })
@@ -1543,10 +1626,12 @@ public class FileStorageService {
         FileNode sourceNode = fileNodeRepository.findByIdAndIsDeletedFalse(fileId)
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
-        if (sourceNode.getType() != EFileType.FILE) throw new AppException(AppErrorCode.COPY_FOLDER);
+        if (sourceNode.getType() != EFileType.FILE) {
+            throw new AppException(AppErrorCode.COPY_FOLDER);
+        }
 
         // Check quyền Đọc (Cần đọc để giải mã)
-        if (!fileShareService.hasReadAccess(sourceNode, userId)) {
+        if (!permissionService.hasReadAccess(sourceNode, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -1557,7 +1642,9 @@ public class FileStorageService {
         // Logic kiểm tra quyền ghi vào folder cha (như cũ)...
         if (parentId != null) {
             FileNode parent = fileNodeRepository.findById(parentId).orElse(null);
-            if (parent != null && !fileShareService.hasEditAccess(parent, userId)) parentId = null;
+            if (parent != null && !permissionService.hasEditAccess(parent, userId)) {
+                parentId = null;
+            }
         }
 
         String prefix = "Bản sao của ";
@@ -1573,11 +1660,12 @@ public class FileStorageService {
         String extractedContent = "";
         try (InputStream tikaStream = new ByteArrayInputStream(fileBytes)) {
             extractedContent = tika.parseToString(tikaStream);
-        } catch (Exception e) { /* Ignore */ }
+        } catch (Exception e) {
+            /* Ignore */ }
 
         // D. Gọi hàm chung
         try (InputStream saveStream = new ByteArrayInputStream(fileBytes)) {
-            return internalStoreFile(
+            FileResponse response = internalStoreFile(
                     saveStream,
                     uniqueName,
                     sourceNode.getMimeType(),
@@ -1587,17 +1675,26 @@ public class FileStorageService {
                     sourceNode.getDescription(),
                     extractedContent
             );
+
+            FileNode copiedNode = fileNodeRepository.findByIdAndIsDeletedFalse(response.getId())
+                    .orElse(null);
+
+            if (copiedNode != null) {
+                activityLogService.logCopied(sourceNode, copiedNode, userId);
+            }
+
+            return response;
         }
     }
 
     // --- SAVE AVATAR FILE ---
     /**
-     * Hàm lưu file vào GridFS và trả về URL tải file
-     * Được sử dụng trong updateProfile để lưu Avatar
+     * Hàm lưu file vào GridFS và trả về URL tải file Được sử dụng trong
+     * updateProfile để lưu Avatar
      */
     public String storeFile(MultipartFile file) {
         if (file.isEmpty()) {
-            throw new RuntimeException("Không thể lưu tệp rỗng.");
+            throw new AppException(AppErrorCode.EMPTY_FILE_SAVE);
         }
 
         try {
@@ -1625,7 +1722,7 @@ public class FileStorageService {
             return fileDownloadUri;
 
         } catch (IOException e) {
-            throw new RuntimeException("Lỗi khi lưu file vào GridFS: " + e.getMessage());
+            throw new AppException(AppErrorCode.GRIDFS_SAVE_ERROR);
         }
     }
 
@@ -1636,7 +1733,7 @@ public class FileStorageService {
         try {
             return gridFsTemplate.findOne(new Query(Criteria.where("_id").is(id)));
         } catch (Exception e) {
-            throw new RuntimeException("Không tìm thấy file với ID: " + id);
+            throw new AppException(AppErrorCode.FILE_NOT_FOUND_INTERNAL);
         }
     }
 
@@ -1644,7 +1741,9 @@ public class FileStorageService {
      * Hàm xóa file khỏi GridFS
      */
     public void deleteFile(String id) {
-        if (id == null || id.isEmpty()) return;
+        if (id == null || id.isEmpty()) {
+            return;
+        }
 
         try {
             // Xóa file có _id trùng với id truyền vào
@@ -1658,7 +1757,6 @@ public class FileStorageService {
     // =========================================================================
     // LOGIC ĐỔI TÊN (RENAME)
     // =========================================================================
-
     /**
      * 1. ĐỔI TÊN THƯ MỤC
      */
@@ -1674,12 +1772,14 @@ public class FileStorageService {
         }
 
         // C. Check Quyền
-        if (!fileShareService.hasEditAccess(folder, userId)) {
+        if (!permissionService.hasEditAccess(folder, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
+        String oldName = folder.getName();
+
         // D. Nếu tên không đổi -> Return luôn
-        if (folder.getName().equals(newName)) {
+        if (oldName.equals(newName)) {
             return convertToResponse(folder, userId);
         }
 
@@ -1694,6 +1794,8 @@ public class FileStorageService {
 
         // G. Cập nhật Elasticsearch (Logic tối ưu)
         documentIndexService.updateElasticsearchAfterRename(savedNode);
+
+        activityLogService.logRenamed(savedNode, oldName, userId);
 
         return convertToResponse(savedNode, userId);
     }
@@ -1713,15 +1815,18 @@ public class FileStorageService {
         }
 
         // C. Check Quyền
-        if (!fileShareService.hasEditAccess(fileNode, userId)) {
+        if (!permissionService.hasEditAccess(fileNode, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
-        // --- [FIX] LOGIC XỬ LÝ ĐUÔI FILE (EXTENSION) ---
+        String oldName = fileNode.getName();
 
+        // --- [FIX] LOGIC XỬ LÝ ĐUÔI FILE (EXTENSION) ---
         // 1. Lấy extension hiện tại và đảm bảo nó có dấu chấm (VD: "txt" -> ".txt")
         String currentExt = fileNode.getExtension();
-        if (currentExt == null) currentExt = "";
+        if (currentExt == null) {
+            currentExt = "";
+        }
         if (!currentExt.isEmpty() && !currentExt.startsWith(".")) {
             currentExt = "." + currentExt;
         }
@@ -1747,14 +1852,13 @@ public class FileStorageService {
                  // Nếu đuôi mới khác đuôi cũ -> Báo lỗi hoặc ép về đuôi cũ
                  // finalName = newNameRaw.substring(0, lastDotIndex) + currentExt;
             }
-            */
+             */
             finalName = newNameRaw;
         }
 
         // --------------------------------------------------
-
         // E. Nếu tên không đổi -> Return
-        if (fileNode.getName().equals(finalName)) {
+        if (oldName.equals(finalName)) {
             return convertToResponse(fileNode, userId);
         }
 
@@ -1773,13 +1877,14 @@ public class FileStorageService {
         // H. Cập nhật Elasticsearch
         documentIndexService.updateElasticsearchAfterRename(savedNode);
 
+        activityLogService.logRenamed(savedNode, oldName, userId);
+
         return convertToResponse(savedNode, userId);
     }
 
     // =========================================================================
     // LOGIC CẬP NHẬT MÔ TẢ
     // =========================================================================
-
     /**
      * CẬP NHẬT MÔ TẢ (Dùng chung cho cả File và Folder)
      */
@@ -1790,7 +1895,7 @@ public class FileStorageService {
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // B. Check Quyền (Cần quyền Edit để sửa mô tả)
-        if (!fileShareService.hasEditAccess(node, userId)) {
+        if (!permissionService.hasEditAccess(node, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -1810,6 +1915,8 @@ public class FileStorageService {
         // F. Cập nhật Elasticsearch
         documentIndexService.updateElasticsearchDescription(savedNode);
 
+        activityLogService.logDescriptionUpdated(savedNode, oldDesc, userId);
+
         return convertToResponse(savedNode, userId);
     }
 
@@ -1822,7 +1929,7 @@ public class FileStorageService {
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // 2. Check Quyền (Cần ít nhất là quyền VIEW để xem thông tin)
-        if (!fileShareService.hasReadAccess(node, userId)) {
+        if (!permissionService.hasReadAccess(node, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 
@@ -1877,9 +1984,9 @@ public class FileStorageService {
                     // (Hoặc tùy nghiệp vụ, có thể hiện đè lên. Nhưng thường quyền Owner to nhất nên giữ Owner).
                     .filter(p -> !ancestorOwners.containsKey(p.getUserId()))
                     .map(p -> FileDetailResponse.PermissionDetail.builder()
-                            .user(userMap.get(p.getUserId()))
-                            .permissionType(p.getRole().name())
-                            .build())
+                    .user(userMap.get(p.getUserId()))
+                    .permissionType(p.getRole().name())
+                    .build())
                     .collect(Collectors.toList());
 
             sharedList.addAll(explicitPerms);
@@ -1933,8 +2040,8 @@ public class FileStorageService {
     }
 
     /**
-     * Helper: Tự xử lý việc map User Entity -> UserSummary DTO
-     * (Không cần gọi qua UserService nữa)
+     * Helper: Tự xử lý việc map User Entity -> UserSummary DTO (Không cần gọi
+     * qua UserService nữa)
      */
     private Map<String, FileDetailResponse.UserSummary> getUsersSummaryMap(Set<String> userIds) {
         List<User> users = userRepository.findAllById(userIds);
@@ -1951,12 +2058,9 @@ public class FileStorageService {
     }
 
     // --- HELPER FUNCTIONS ---
-
-
-
     /**
-     * Đệ quy cập nhật trạng thái deleted cho toàn bộ con cháu.
-     * Dùng cho cả MoveToTrash (isDeleted=true) và Restore (isDeleted=false).
+     * Đệ quy cập nhật trạng thái deleted cho toàn bộ con cháu. Dùng cho cả
+     * MoveToTrash (isDeleted=true) và Restore (isDeleted=false).
      */
     private void processDescendantsStatus(FileNode parent, boolean isDeleted, List<FileNode> toSave, List<FileNode> toUpdateES) {
         // Tìm tất cả con cháu (ancestors vẫn còn nguyên nên tìm tốt)
@@ -1981,7 +2085,7 @@ public class FileStorageService {
      * Trả file về Root của chủ sở hữu (Khi người khác xoá file mình share)
      */
     private void returnToOwnerRoot(FileNode node, String actorId) {
-        if (!fileShareService.hasEditAccess(node, actorId)) {
+        if (!permissionService.hasEditAccess(node, actorId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
         node.setParentId(null);
@@ -1999,7 +2103,9 @@ public class FileStorageService {
     private void rescueOrphanFiles(FileNode parentFolder, String deleterId) {
         // 1. Tìm tất cả con cháu
         List<FileNode> descendants = fileNodeRepository.findAllByAncestorsContaining(parentFolder.getId());
-        if (descendants.isEmpty()) return;
+        if (descendants.isEmpty()) {
+            return;
+        }
 
         Map<String, String> ownerMap = descendants.stream()
                 .collect(Collectors.toMap(FileNode::getId, FileNode::getOwnerId));
@@ -2048,7 +2154,9 @@ public class FileStorageService {
             // Kiểm tra lại xem node này còn tồn tại không (phòng trường hợp nó là con của nodesToDelete vừa xoá)
             // Tuy nhiên với logic Split Point thì nodesToRescue và nodesToDelete là ngang hàng (siblings)
             // hoặc khác nhánh, nên ít khi ảnh hưởng nhau. Nhưng cẩn thận vẫn hơn.
-            if (!fileNodeRepository.existsById(orphan.getId())) continue;
+            if (!fileNodeRepository.existsById(orphan.getId())) {
+                continue;
+            }
 
             // A. Đưa về Root của chủ sở hữu
             orphan.setParentId(null);
@@ -2072,17 +2180,18 @@ public class FileStorageService {
     }
 
     /**
-     * Hàm MỚI: Chỉ cập nhật Ancestors (Đường dẫn) cho con cháu.
-     * Dùng cho các trường hợp:
-     * 1. Trả file về Root (Return to Owner).
-     * 2. Cứu file mồ côi (Rescue Orphan).
-     * 3. Chuyển vào thùng rác (nếu cần cập nhật đường dẫn con cháu theo logic tách folder).
+     * Hàm MỚI: Chỉ cập nhật Ancestors (Đường dẫn) cho con cháu. Dùng cho các
+     * trường hợp: 1. Trả file về Root (Return to Owner). 2. Cứu file mồ côi
+     * (Rescue Orphan). 3. Chuyển vào thùng rác (nếu cần cập nhật đường dẫn con
+     * cháu theo logic tách folder).
      */
     private void updateDescendantsAncestors(FileNode movedFolder) {
         // 1. Tìm tất cả con cháu (bao gồm cả file đã xóa để đảm bảo tính nhất quán)
         List<FileNode> descendants = fileNodeRepository.findAllByAncestorsContaining(movedFolder.getId());
 
-        if (descendants.isEmpty()) return;
+        if (descendants.isEmpty()) {
+            return;
+        }
 
         // 2. Tính toán Ancestors cơ sở mới từ Folder cha vừa di chuyển
         // (Nếu movedFolder về Root, list này chỉ chứa [movedFolderId])
@@ -2121,11 +2230,8 @@ public class FileStorageService {
         }
     }
 
-
-
     /**
-     * Helper: Tính thời gian cơ sở của riêng node đó
-     * Max(SharedAt, AccessedAt)
+     * Helper: Tính thời gian cơ sở của riêng node đó Max(SharedAt, AccessedAt)
      */
     private LocalDateTime getBaseInteractionTime(FileNode node, String userId, Map<String, LocalDateTime> recentAccessMap) {
         // A. Thời gian được Share
@@ -2181,11 +2287,11 @@ public class FileStorageService {
         // A. Nếu file đã xóa vào thùng rác
         if (node.isDeleted()) {
             // Chỉ chủ sở hữu (hoặc Lãnh chúa) mới có quyền trong thùng rác
-            boolean isOwnerOrLandlord = node.getOwnerId().equals(userId) || fileShareService.isLandlord(node, userId);
+            boolean isOwnerOrLandlord = node.getOwnerId().equals(userId) || permissionService.isLandlord(node, userId);
             if (isOwnerOrLandlord) {
                 return UserPermissions.builder()
                         .canViewDetails(true)
-                        .canDelete(true)          // Delete Forever
+                        .canDelete(true) // Delete Forever
                         .canDeletePermanently(true)
                         .canRestore(true)
                         .build();
@@ -2205,23 +2311,23 @@ public class FileStorageService {
     }
 
     /**
-     * HELPER 1: Xác định cấp bậc (Rank) của User
-     * Thứ tự ưu tiên: Owner/Landlord > Editor > Viewer
+     * HELPER 1: Xác định cấp bậc (Rank) của User Thứ tự ưu tiên: Owner/Landlord
+     * > Editor > Viewer
      */
     private EPermissionRole resolveEffectiveRole(FileNode node, String userId) {
         // 1. Cấp cao nhất: LÃNH CHÚA (Landlord) hoặc CHỦ SỞ HỮU (Owner)
         // isLandlord check cả Ancestor Owners (Thái Thượng Hoàng)
-        if (fileShareService.isLandlord(node, userId)) {
+        if (permissionService.isLandlord(node, userId)) {
             return EPermissionRole.EDITOR; // Mượn Enum OWNER đại diện cho quyền lực tối cao
         }
 
         // 2. Cấp tiếp theo: EDITOR (Được share quyền sửa hoặc Public Edit)
-        if (fileShareService.hasEditAccess(node, userId)) {
+        if (permissionService.hasEditAccess(node, userId)) {
             return EPermissionRole.EDITOR;
         }
 
         // 3. Cấp thấp nhất: VIEWER (Được share quyền xem hoặc Public View)
-        if (fileShareService.hasReadAccess(node, userId)) {
+        if (permissionService.hasReadAccess(node, userId)) {
             return EPermissionRole.VIEWER;
         }
 
@@ -2276,25 +2382,27 @@ public class FileStorageService {
     }
 
     /**
-     * Helper: Lấy nội dung file đã giải mã dưới dạng byte array
-     * (Cần thiết vì Tika và Processor cần đọc dữ liệu raw)
+     * Helper: Lấy nội dung file đã giải mã dưới dạng byte array (Cần thiết vì
+     * Tika và Processor cần đọc dữ liệu raw)
      */
     private byte[] getDecryptedBytes(FileNode fileNode) throws Exception {
         FileNode.EncryptionMetadata encMeta = fileNode.getEncryptionMetadata();
         if (encMeta == null || !fileNode.isEncrypted()) {
-            throw new RuntimeException("File chưa được mã hóa hoặc lỗi metadata.");
+            throw new AppException(AppErrorCode.FILE_ENCRYPTION_METADATA_ERROR);
         }
 
         // 1. Lấy Key giải mã
         FileKey fileKeyEntity = fileKeyRepository.findById(encMeta.getKeyId())
-                .orElseThrow(() -> new RuntimeException("Key không tồn tại."));
+                .orElseThrow(() -> new AppException(AppErrorCode.KEY_NOT_EXIST));
 
         SecretKey originalFileKey = cryptoUtils.decryptFileKey(fileKeyEntity.getEncryptedKey());
         byte[] iv = cryptoUtils.decodeBase64(encMeta.getIv());
 
         // 2. Lấy Stream từ GridFS
         GridFSFile gridFSFile = gridFsTemplate.findOne(new Query(Criteria.where("_id").is(fileNode.getGridFsId())));
-        if (gridFSFile == null) throw new AppException(AppErrorCode.FILE_NOT_FOUND);
+        if (gridFSFile == null) {
+            throw new AppException(AppErrorCode.FILE_NOT_FOUND);
+        }
 
         GridFsResource gridFsResource = gridFsTemplate.getResource(gridFSFile);
 
@@ -2314,7 +2422,9 @@ public class FileStorageService {
     private void cleanupFilePages(String fileId) {
         List<FilePage> pages = filePageRepository.findAllByFileId(fileId);
 
-        if (pages.isEmpty()) return;
+        if (pages.isEmpty()) {
+            return;
+        }
 
         for (FilePage page : pages) {
             // 1. Xoá ảnh trong GridFS
@@ -2336,7 +2446,9 @@ public class FileStorageService {
      * Helper: Xoá file trong GridFS an toàn
      */
     private void deleteGridFsFile(String gridFsId) {
-        if (gridFsId == null || gridFsId.isEmpty()) return;
+        if (gridFsId == null || gridFsId.isEmpty()) {
+            return;
+        }
         try {
             gridFsTemplate.delete(new Query(Criteria.where("_id").is(gridFsId)));
         } catch (Exception e) {
@@ -2352,7 +2464,8 @@ public class FileStorageService {
         if (metadata != null && metadata.getKeyId() != null) {
             try {
                 fileKeyRepository.deleteById(metadata.getKeyId());
-            } catch (Exception e) { /* Ignore */ }
+            } catch (Exception e) {
+                /* Ignore */ }
         }
     }
 
@@ -2364,8 +2477,8 @@ public class FileStorageService {
     }
 
     /**
-     * HELPER: Kiểm tra xem User có đủ quyền tải toàn bộ file không
-     * Logic: User phải sở hữu quyền truy cập cho TẤT CẢ các trang đang bị khoá.
+     * HELPER: Kiểm tra xem User có đủ quyền tải toàn bộ file không Logic: User
+     * phải sở hữu quyền truy cập cho TẤT CẢ các trang đang bị khoá.
      */
     private void validateDownloadOrCopyPermission(FileNode fileNode, String userId) {
         // 1. Chủ sở hữu luôn được phép
@@ -2399,8 +2512,8 @@ public class FileStorageService {
     }
 
     /**
-     * Helper 1: Hồi sinh trạng thái deleted cho con cháu (Recursively)
-     * Chỉ update cờ isDeleted, không đụng vào parentId/ancestors
+     * Helper 1: Hồi sinh trạng thái deleted cho con cháu (Recursively) Chỉ
+     * update cờ isDeleted, không đụng vào parentId/ancestors
      */
     private void restoreDescendantsStatus(FileNode parent) {
         // Tìm con cháu dựa trên ancestors cũ (lưu ý: logic tìm này cần chính xác)
@@ -2418,8 +2531,8 @@ public class FileStorageService {
     }
 
     /**
-     * Helper 2: Cập nhật Ancestors VÀ Permissions cho toàn bộ cây con.
-     * Logic: Con cháu sẽ thừa hưởng hoàn toàn quyền của rootNode vừa khôi phục.
+     * Helper 2: Cập nhật Ancestors VÀ Permissions cho toàn bộ cây con. Logic:
+     * Con cháu sẽ thừa hưởng hoàn toàn quyền của rootNode vừa khôi phục.
      */
     private void updatePathAndPermissionsForSubtree(FileNode rootNode, List<String> rootNewAncestors) {
         List<FileNode> descendants = fileNodeRepository.findAllByAncestorsContaining(rootNode.getId());
@@ -2455,8 +2568,8 @@ public class FileStorageService {
     }
 
     /**
-     * Thay thế cho findByIdAndUserAccess
-     * Hàm này chịu trách nhiệm lấy file VÀ ném lỗi nếu không có quyền
+     * Thay thế cho findByIdAndUserAccess Hàm này chịu trách nhiệm lấy file VÀ
+     * ném lỗi nếu không có quyền
      */
     public FileNode getFileAndValidateAccess(String fileId, String userId) {
         // 1. Lấy File (Chưa check quyền)
@@ -2464,7 +2577,7 @@ public class FileStorageService {
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
         // 2. Sử dụng logic Check Quyền tập trung (Đã bao gồm check Ancestor/Power Map)
-        if (!fileShareService.hasReadAccess(node, userId)) {
+        if (!permissionService.hasReadAccess(node, userId)) {
             // Tùy chọn: Ném ra 404 (Not Found) để giấu file, hoặc 403 (Access Denied)
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
@@ -2497,6 +2610,7 @@ public class FileStorageService {
     @Data
     @Builder
     public static class FolderContext {
+
         private String parentId;
         private List<String> ancestors;
         private EPublicAccess publicAccess;

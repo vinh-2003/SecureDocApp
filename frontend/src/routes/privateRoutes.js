@@ -6,6 +6,10 @@ import IncomingRequestPage from '../pages/Request/IncomingRequestPage';
 import RecentPage from '../pages/Recent/RecentPage';
 import TrashPage from '../pages/Trash/TrashPage';
 import SharedPage from '../pages/Shared/SharedPage';
+import ActivityPage from '../pages/Activity/ActivityPage';
+import AdminUserPage from '../pages/Admin/AdminUserPage';
+import AccessLogPage from '../pages/Admin/AccessLogPage';
+import DocumentMonitorPage from '../pages/Admin/DocumentMonitorPage';
 
 /**
  * Các route được bảo vệ (cần đăng nhập)
@@ -32,6 +36,13 @@ const privateRoutes = [
 
     // Requests
     { path: '/requests', element: IncomingRequestPage },
+
+    { path: '/activities', element: ActivityPage },
+
+    // --- ADMIN ROUTES ---
+    { path: '/admin/users', element: AdminUserPage },
+    { path: '/admin/logs', element: AccessLogPage },
+    { path: '/admin/monitor', element: DocumentMonitorPage },
 ];
 
 export default privateRoutes;

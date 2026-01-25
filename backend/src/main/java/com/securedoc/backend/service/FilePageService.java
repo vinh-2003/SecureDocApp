@@ -25,7 +25,7 @@ public class FilePageService {
     private final FilePageRepository filePageRepository;
     private final FileNodeRepository fileNodeRepository;
     private final FileKeyRepository fileKeyRepository;
-    private final FileShareService fileShareService;
+    private final PermissionService permissionService;
     private final UserPageAccessRepository userPageAccessRepository;
     private final UserService userService;
     private final CoreFileService coreFileService;
@@ -37,7 +37,7 @@ public class FilePageService {
         FileNode file = fileNodeRepository.findById(fileId)
                 .orElseThrow(() -> new AppException(AppErrorCode.FILE_NOT_FOUND));
 
-        if (!fileShareService.hasReadAccess(file, userId)) {
+        if (!permissionService.hasReadAccess(file, userId)) {
             throw new AppException(AppErrorCode.FILE_ACCESS_DENIED);
         }
 

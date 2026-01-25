@@ -208,82 +208,84 @@ const DashboardPage = () => {
 
     // 7. RENDER
     return (
-        <div className="animate-fade-in pb-10 min-h-[80vh]" onContextMenu={openContextMenu}>
+        <>
+            <div className="animate-fade-in pb-10 min-h-[80vh]" onContextMenu={openContextMenu}>
 
-            {/* STATS */}
-            {!folderId && (
-                <DashboardStats
-                    title="Tài liệu của tôi"
-                    stats={[
-                        { type: STAT_TYPES.STORAGE, value: stats.totalSize },
-                        { type: STAT_TYPES.TOTAL_FILES, value: stats.totalFiles }
-                    ]}
+                {/* STATS */}
+                {!folderId && (
+                    <DashboardStats
+                        title="Tài liệu của tôi"
+                        stats={[
+                            { type: STAT_TYPES.STORAGE, value: stats.totalSize },
+                            { type: STAT_TYPES.TOTAL_FILES, value: stats.totalFiles }
+                        ]}
+                    />
+                )}
+
+                {/* BREADCRUMB */}
+                <Breadcrumb
+                    items={breadcrumbs}
+                    onItemClick={handleBreadcrumbClick}
+                    onMenuClick={(e, item) => { e.stopPropagation(); openBreadcrumbMenu(e, item); }}
+                    onContextMenu={openBreadcrumbMenuFromContext}
                 />
-            )}
 
-            {/* BREADCRUMB */}
-            <Breadcrumb
-                items={breadcrumbs}
-                onItemClick={handleBreadcrumbClick}
-                onMenuClick={(e, item) => { e.stopPropagation(); openBreadcrumbMenu(e, item); }}
-                onContextMenu={openBreadcrumbMenuFromContext}
-            />
+                {/* TOOLBAR */}
+                <FileToolbar
+                    title={folderId ? breadcrumbs[breadcrumbs.length - 1]?.name : 'Thư mục gốc'}
+                    sortValue={`${sortConfig.sortBy}-${sortConfig.direction}`}
+                    onSortChange={({ sortBy, direction }) => setSortConfig({ sortBy, direction })}
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    visibleColumns={visibleColumns}
+                    columnOptions={DASHBOARD_COLUMNS}
+                    onColumnsChange={setVisibleColumns}
+                />
 
-            {/* TOOLBAR */}
-            <FileToolbar
-                title={folderId ? breadcrumbs[breadcrumbs.length - 1]?.name : 'Thư mục gốc'}
-                sortValue={`${sortConfig.sortBy}-${sortConfig.direction}`}
-                onSortChange={({ sortBy, direction }) => setSortConfig({ sortBy, direction })}
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
-                visibleColumns={visibleColumns}
-                columnOptions={DASHBOARD_COLUMNS}
-                onColumnsChange={setVisibleColumns}
-            />
+                {/* BATCH ACTIONS */}
+                <BatchActionBar
+                    selectedCount={selectionCount}
+                    selectedFiles={selectedFiles}
+                    onClearSelection={clearSelection}
+                    onAction={handleBatchAction}
+                    actions={[BATCH_ACTIONS.MOVE, BATCH_ACTIONS.DELETE]}
+                />
 
-            {/* BATCH ACTIONS */}
-            <BatchActionBar
-                selectedCount={selectionCount}
-                selectedFiles={selectedFiles}
-                onClearSelection={clearSelection}
-                onAction={handleBatchAction}
-                actions={[BATCH_ACTIONS.MOVE, BATCH_ACTIONS.DELETE]}
-            />
-
-            {/* MAIN CONTENT */}
-            {loading ? <Loading /> : (
-                files.length > 0 ? (
-                    viewMode === 'list' ? (
-                        <FileListView
-                            files={files}
-                            visibleColumns={visibleColumns}
-                            isSelected={isSelected}
-                            isAllSelected={isAllSelected}
-                            onSelectAll={selectAll}
-                            onToggleSelect={toggleSelect}
-                            onRowClick={handleSmartClickWrapper}
-                            onDoubleClick={handleDoubleClick}
-                            onContextMenu={openItemMenu}
-                            onMenuClick={openItemMenuFromButton}
-                            onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
-                        />
+                {/* MAIN CONTENT */}
+                {loading ? <Loading /> : (
+                    files.length > 0 ? (
+                        viewMode === 'list' ? (
+                            <FileListView
+                                files={files}
+                                visibleColumns={visibleColumns}
+                                isSelected={isSelected}
+                                isAllSelected={isAllSelected}
+                                onSelectAll={selectAll}
+                                onToggleSelect={toggleSelect}
+                                onRowClick={handleSmartClickWrapper}
+                                onDoubleClick={handleDoubleClick}
+                                onContextMenu={openItemMenu}
+                                onMenuClick={openItemMenuFromButton}
+                                onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
+                            />
+                        ) : (
+                            <FileGridView
+                                files={files}
+                                isSelected={isSelected}
+                                onToggleSelect={toggleSelect}
+                                onCardClick={handleSmartClickWrapper}
+                                onDoubleClick={handleDoubleClick}
+                                onContextMenu={openItemMenu}
+                                onMenuClick={openItemMenuFromButton}
+                                onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
+                            />
+                        )
                     ) : (
-                        <FileGridView
-                            files={files}
-                            isSelected={isSelected}
-                            onToggleSelect={toggleSelect}
-                            onCardClick={handleSmartClickWrapper}
-                            onDoubleClick={handleDoubleClick}
-                            onContextMenu={openItemMenu}
-                            onMenuClick={openItemMenuFromButton}
-                            onRetry={(e, file) => fileActions.handleRetry(e, file, setFiles)}
-                        />
+                        <EmptyState type="folder" />
                     )
-                ) : (
-                    <EmptyState type="folder" />
-                )
-            )}
+                )}
 
+            </div>
             {/* CONTEXT MENUS */}
             <BackgroundContextMenu menuState={contextMenu} onClose={closeContextMenu} onAction={handleBackgroundAction} permissions={currentPermissions} />
             <ItemContextMenu menuState={itemMenu} onClose={closeItemMenu} onAction={handleMenuAction} />
@@ -301,8 +303,9 @@ const DashboardPage = () => {
 
             {/* HIDDEN INPUTS */}
             <input type="file" className="hidden" ref={fileActions.folderInputRef} onChange={fileActions.onFolderSelect} webkitdirectory="" directory="" multiple />
-            <input type="file" multiple className="hidden" ref={fileActions.fileInputRef} onChange={fileActions.onFileSelect} accept=".pdf,. doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-        </div>
+            <input type="file" multiple className="hidden" ref={fileActions.fileInputRef} onChange={fileActions.onFileSelect} accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+
+        </>
     );
 };
 

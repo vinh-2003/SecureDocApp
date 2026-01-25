@@ -8,4 +8,5 @@ import java.util.Optional;
 public interface VerificationTokenRepository extends MongoRepository<VerificationToken, String> {
     Optional<VerificationToken> findByToken(String token);
     void deleteByUser(User user); // Xóa token cũ của user nếu có
+    void deleteByUserAndType(User user, VerificationToken.TokenType type);
 }

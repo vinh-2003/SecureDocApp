@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import authService from '../services/authService';
 import { toast } from 'react-toastify';
 
@@ -13,7 +13,11 @@ export const AuthProvider = ({ children }) => {
     return storedUser ? JSON.parse(storedUser) : null;
   });
   const [loading, setLoading] = useState(true);
+
+  const [isExplicitLogout, setIsExplicitLogout] = useState(false);
+
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Khôi phục user khi reload trang (nếu còn token)
   useEffect(() => {
@@ -27,6 +31,9 @@ export const AuthProvider = ({ children }) => {
 
   // Hàm xử lý Login
   const login = async (username, password) => {
+    // Reset cờ logout để đảm bảo logic redirect hoạt động đúng cho lần sau
+    setIsExplicitLogout(false);
+
     try {
       const res = await authService.login(username, password);
       // Backend trả về: { success: true, data: { accessToken, user... } }
@@ -40,7 +47,9 @@ export const AuthProvider = ({ children }) => {
 
         setUser(userInfo);
         toast.success('Đăng nhập thành công!');
-        navigate('/'); // Chuyển về trang chủ
+
+        const from = location.state?.from || '/';
+        navigate(from, { replace: true });
       }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Đăng nhập thất bại');
@@ -49,6 +58,8 @@ export const AuthProvider = ({ children }) => {
 
   // Hàm xử lý Google Login
   const loginWithGoogle = async (credentialResponse) => {
+    setIsExplicitLogout(false);
+
     try {
       if (credentialResponse.credential) {
         const res = await authService.googleLogin(credentialResponse.credential);
@@ -59,7 +70,9 @@ export const AuthProvider = ({ children }) => {
           localStorage.setItem('user', JSON.stringify(userInfo));
           setUser(userInfo);
           toast.success('Đăng nhập Google thành công!');
-          navigate('/');
+
+          const from = location.state?.from || '/';
+          navigate(from, { replace: true });
         }
       }
     } catch (error) {
@@ -68,11 +81,18 @@ export const AuthProvider = ({ children }) => {
   }
 
   const logout = () => {
-    authService.logout().then(() => {
-      localStorage.clear();
-      setUser(null);
-      navigate('/login');
-    });
+    authService.logout(); // Gọi API ngầm
+    localStorage.clear();
+
+    // B1: Bật cờ "Tôi đang chủ động đăng xuất"
+    // Việc này báo hiệu cho ProtectedRoute biết đừng có lưu lại URL hiện tại
+    setIsExplicitLogout(true);
+
+    // B2: Xóa user
+    setUser(null);
+
+    // B3: Về trang login
+    navigate('/login', { replace: true });
   };
 
   // --- THÊM HÀM CẬP NHẬT STATE USER ---
@@ -91,7 +111,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, loginWithGoogle, logout, updateUser, loading }}>
+    <AuthContext.Provider value={{ user, login, loginWithGoogle, logout, updateUser, loading, isExplicitLogout }}>
       {/* Nếu đang loading khởi tạo thì hiện màn hình chờ Fullscreen */}
       {loading ? <Loading fullScreen={true} text="Đang khởi động hệ thống..." /> : children}
     </AuthContext.Provider>

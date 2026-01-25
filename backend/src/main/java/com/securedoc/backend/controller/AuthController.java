@@ -12,6 +12,8 @@ import com.securedoc.backend.security.jwt.JwtUtils;
 import com.securedoc.backend.security.services.RefreshTokenService;
 import com.securedoc.backend.security.services.UserDetailsImpl;
 import com.securedoc.backend.service.AuthService;
+import com.securedoc.backend.enums.EAccessAction;
+import com.securedoc.backend.service.AccessLogService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,7 @@ public class AuthController {
     private final RefreshTokenService refreshTokenService;
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
+    private final AccessLogService accessLogService;
 
     // --- 1. ĐĂNG NHẬP ---
     @PostMapping("/signin")
@@ -63,13 +66,34 @@ public class AuthController {
                     // Tạo Access Token mới
                     String newAccessToken = jwtUtils.generateTokenFromUsername(user.getUsername());
 
+                    accessLogService.logAccess(
+                            user.getId(),
+                            user.getUsername(),
+                            EAccessAction.REFRESH_TOKEN,
+                            true,
+                            null,
+                            accessLogService.getClientIp(),
+                            accessLogService.getUserAgent()
+                    );
+
                     return ResponseEntity.ok(ApiResponse.success(
                             new TokenRefreshResponse(newAccessToken, requestRefreshToken),
                             "Làm mới token thành công"
                     ));
                 })
-                .orElseThrow(() -> new TokenRefreshException(requestRefreshToken,
-                        "Refresh token is not in database!"));
+                .orElseThrow(() -> {
+                    // Log thất bại (Token không tồn tại hoặc hết hạn)
+                    accessLogService.logAccess(
+                            null,
+                            "Unknown",
+                            EAccessAction.REFRESH_TOKEN,
+                            false,
+                            "Invalid/Expired Refresh Token",
+                            accessLogService.getClientIp(),
+                            accessLogService.getUserAgent()
+                    );
+                    return new TokenRefreshException(requestRefreshToken, "Refresh token is not in database!");
+                });
     }
 
     // --- 4. ĐĂNG XUẤT ---
@@ -84,6 +108,16 @@ public class AuthController {
 
             // Xóa Refresh Token trong DB
             refreshTokenService.deleteByUserId(userId);
+
+            accessLogService.logAccess(
+                    userId,
+                    userDetails.getUsername(),
+                    EAccessAction.LOGOUT,
+                    true,
+                    null,
+                    accessLogService.getClientIp(),
+                    accessLogService.getUserAgent()
+            );
 
             return ResponseEntity.ok(ApiResponse.success("Đăng xuất thành công!"));
         }
@@ -120,5 +154,11 @@ public class AuthController {
     public ResponseEntity<ApiResponse<TokenResponse>> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {
         TokenResponse tokenResponse = authService.authenticateGoogleUser(request);
         return ResponseEntity.ok(ApiResponse.success(tokenResponse, "Đăng nhập Google thành công"));
+    }
+
+    @PostMapping("/resend-verification")
+    public ResponseEntity<?> resendVerification(@RequestParam String email) {
+        authService.resendVerificationEmail(email);
+        return ResponseEntity.ok(ApiResponse.success("Email xác thực đã được gửi lại!"));
     }
 }

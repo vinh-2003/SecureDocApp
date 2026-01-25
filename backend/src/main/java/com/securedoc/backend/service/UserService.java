@@ -1,6 +1,5 @@
 package com.securedoc.backend.service;
 
-import com.securedoc.backend.dto.file.FileDetailResponse;
 import com.securedoc.backend.dto.user.ChangePasswordRequest;
 import com.securedoc.backend.dto.user.UpdateProfileRequest;
 import com.securedoc.backend.dto.user.UserInfoResponse; // Đảm bảo đã có DTO này
@@ -10,13 +9,10 @@ import com.securedoc.backend.exception.AppErrorCode;
 import com.securedoc.backend.exception.AppException;
 import com.securedoc.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.modelmapper.ModelMapper; // Hoặc dùng Map thủ công tuỳ bạn
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,7 +20,6 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final ModelMapper modelMapper; // Inject ModelMapper nếu dùng
     private final PasswordEncoder passwordEncoder;
     private final FileStorageService fileStorageService;
 
@@ -76,7 +71,7 @@ public class UserService {
 
         // 2. Kiểm tra mật khẩu mới có trùng mật khẩu cũ không (Tuỳ chọn)
         if (request.getCurrentPassword().equals(request.getNewPassword())) {
-            throw new RuntimeException("Mật khẩu mới không được trùng với mật khẩu cũ");
+            throw new AppException(AppErrorCode.PASSWORD_DUPLICATE);
         }
 
         // 3. Mã hóa và lưu mật khẩu mới
@@ -135,7 +130,7 @@ public class UserService {
                 user.setAvatarUrl(avatarUrl);
 
             } catch (Exception e) {
-                throw new RuntimeException("Lỗi upload avatar: " + e.getMessage());
+                throw new AppException(AppErrorCode.AVATAR_UPLOAD_FAILURE);
             }
         }
 

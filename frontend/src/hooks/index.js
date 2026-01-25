@@ -38,3 +38,5 @@ export { default as useRegister } from './useRegister';
 export { default as useForgotPassword } from './useForgotPassword';
 export { default as useResetPassword } from './useResetPassword';
 export { default as useVerifyEmail, VERIFY_STATUS } from './useVerifyEmail';
+
+export { default as useActivityLog } from './useActivityLog';

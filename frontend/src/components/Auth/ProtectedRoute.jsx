@@ -19,7 +19,7 @@ const ProtectedRoute = ({
   children,
   requiredRoles = []
 }) => {
-  const { user, loading } = useContext(AuthContext);
+  const { user, loading, isExplicitLogout } = useContext(AuthContext);
   const location = useLocation();
 
   // 1. Đang tải thông tin user → Hiện loading
@@ -34,6 +34,10 @@ const ProtectedRoute = ({
 
   // 2. Chưa đăng nhập → Redirect về login (lưu lại URL hiện tại)
   if (!user) {
+    if (isExplicitLogout) {
+        return <Navigate to={redirectTo} replace />;
+    }
+    
     return (
       <Navigate
         to={redirectTo}

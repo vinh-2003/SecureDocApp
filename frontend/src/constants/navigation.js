@@ -62,19 +62,3 @@ export const ADMIN_SIDEBAR_MENUS = [
         exact: true
     }
 ];
-
-/**
- * Các định dạng file được phép upload
- */
-export const ALLOWED_FILE_EXTENSIONS = ['pdf', 'doc', 'docx'];
-
-export const ALLOWED_MIME_TYPES = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml. document'
-];
-
-/**
- * Accept string cho input file
- */
-export const FILE_ACCEPT = '. pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument. wordprocessingml.document';

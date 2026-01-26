@@ -5,8 +5,8 @@ import { toast } from 'react-toastify';
 // Components & Services
 import adminService from '../../services/adminService';
 import { Loading } from '../../components/Common';
-import DocumentCharts from '../../components/Admin/DocumentCharts';
-import { formatBytes } from '../../utils/format'; // Hàm formatBytes bạn đã có
+import { DocumentCharts } from '../../components/Admin';
+import { formatBytes } from '../../utils/format';
 
 const DocumentMonitorPage = () => {
     const [stats, setStats] = useState(null);

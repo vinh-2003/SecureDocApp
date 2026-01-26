@@ -1,6 +1,6 @@
 import React from 'react';
 import { FaUserCircle } from 'react-icons/fa';
-import usePermissionHelpers from '../../hooks/usePermissionHelpers';
+import { usePermissionHelpers } from '../../hooks';
 
 /**
  * Component hiển thị danh sách người được chia sẻ (chỉ đọc)

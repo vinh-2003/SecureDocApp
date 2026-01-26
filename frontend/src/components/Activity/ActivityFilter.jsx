@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { FaFilter, FaTimes, FaChevronDown } from 'react-icons/fa';
-import { ACTIVITY_GROUPS, ACTIVITY_TYPES } from '../../constants/activityTypes';
-import useMenuPosition from '../../hooks/useMenuPosition'; // Sửa lại đường dẫn nếu cần
+import { ACTIVITY_GROUPS, ACTIVITY_TYPES } from '../../constants';
+import { useMenuPosition } from '../../hooks';
 
 const ActivityFilter = ({ filters, onFilterChange, onClear }) => {
     const [isOpen, setIsOpen] = useState(false);

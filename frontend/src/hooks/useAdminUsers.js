@@ -3,7 +3,7 @@ import { toast } from 'react-toastify';
 import debounce from 'lodash/debounce';
 import adminService from '../services/adminService';
 
-export const useAdminUsers = () => {
+const useAdminUsers = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [pagination, setPagination] = useState({
@@ -73,3 +73,5 @@ export const useAdminUsers = () => {
         refreshData
     };
 };
+
+export default useAdminUsers;

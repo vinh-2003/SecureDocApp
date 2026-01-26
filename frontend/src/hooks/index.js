@@ -8,16 +8,14 @@ export { default as useFileWebSocket, FILE_STATUS } from './useFileWebSocket';
 
 // UI
 export { default as useMenuPosition, useMenuPositionWithAnimation } from './useMenuPosition';
-export { default as useBackgroundActions } from './useBackgroundActions';
 export { default as usePermissionHelpers } from './usePermissionHelpers';
 
 // Access management
 export { default as useAccessList } from './useAccessList';
 export { default as useAccessRequest } from './useAccessRequest';
 
-// Upload & Validation
+// Upload
 export { default as useUploadPermissions } from './useUploadPermissions';
-export { default as useFileValidation } from './useFileValidation';
 
 // Search
 export { default as useUserSearch } from './useUserSearch';
@@ -26,6 +24,7 @@ export { default as useSearchPreview } from './useSearchPreview';
 
 // Profile
 export { default as useProfile } from './useProfile';
+export { default as useChangePassword } from './useChangePassword';
 
 // Image & Viewer
 export { default as useSecureImage } from './useSecureImage';
@@ -39,4 +38,9 @@ export { default as useForgotPassword } from './useForgotPassword';
 export { default as useResetPassword } from './useResetPassword';
 export { default as useVerifyEmail, VERIFY_STATUS } from './useVerifyEmail';
 
+// Activity Log
 export { default as useActivityLog } from './useActivityLog';
+
+// Admin
+export { default as useAdminUsers } from './useAdminUsers';
+export { default as useAccessLogs } from './useAccessLogs';

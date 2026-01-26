@@ -11,13 +11,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.query.HighlightQuery;
+import org.springframework.data.elasticsearch.core.query.highlight.Highlight;
+import org.springframework.data.elasticsearch.core.query.highlight.HighlightField;
+import org.springframework.data.elasticsearch.core.query.highlight.HighlightParameters;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -37,6 +38,16 @@ public class SearchService {
     private final FileNodeRepository fileNodeRepository;
     private final FileStorageService fileStorageService;
 
+    private final Highlight highlightConfig = new Highlight(
+            HighlightParameters.builder()
+                    .withPreTags("<mark class='highlight'>") // Thẻ mở tô đậm (có thể chỉnh CSS FE)
+                    .withPostTags("</mark>")                 // Thẻ đóng
+                    .withFragmentSize(150)                   // Độ dài đoạn trích dẫn (ký tự)
+                    .withNumberOfFragments(1)                // Chỉ lấy 1 đoạn tiêu biểu nhất
+                    .build(),
+            Collections.singletonList(new HighlightField("content"))
+    );
+
     public List<FileResponse> searchFiles(SearchFileRequest request, String userId) {
 
         List<String> recentFileIds = recentFileService.getRecentFileIds(userId);
@@ -47,8 +58,16 @@ public class SearchService {
                     // 1. KEYWORD
                     if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
                         b.must(m -> m.bool(b2 -> b2
-                                .should(s -> s.match(mat -> mat.field("name").query(request.getKeyword()).boost(2.0f)))
-                                .should(s -> s.match(mat -> mat.field("content").query(request.getKeyword())))
+                                .should(s -> s.match(mat -> mat
+                                        .field("name")
+                                        .query(request.getKeyword())
+                                        .boost(2.0f)
+                                ))
+                                .should(s -> s.match(mat -> mat
+                                        .field("content")
+                                        .query(request.getKeyword())
+                                        .fuzziness("AUTO")
+                                ))
                         ));
                     }
 
@@ -116,6 +135,7 @@ public class SearchService {
                 }))
                 .withSort(Sort.by(Sort.Direction.DESC, "_score"))
                 .withPageable(PageRequest.of(request.getPage(), request.getSize()))
+                .withHighlightQuery(new HighlightQuery(highlightConfig, DocumentIndex.class))
                 .build();
 
         SearchHits<DocumentIndex> searchHits = elasticsearchOperations.search(query, DocumentIndex.class);
@@ -124,26 +144,35 @@ public class SearchService {
             return Collections.emptyList();
         }
 
-        // --- 3. LẤY DANH SÁCH ID (Theo đúng thứ tự Score của Elastic) ---
-        List<String> elasticIds = searchHits.stream()
-                .map(hit -> hit.getContent().getId())
-                .collect(Collectors.toList());
+        // [TỐI ƯU] 3. Xử lý Map Highlight đơn giản hơn (Chỉ lấy Content)
+        Map<String, String> highlightMap = new HashMap<>();
+        List<String> elasticIds = new ArrayList<>();
 
-        // --- 4. FETCH DỮ LIỆU TỪ DB CHÍNH (MONGODB) ---
-        // Lưu ý: findAllById không bảo đảm thứ tự trả về
+        searchHits.forEach(hit -> {
+            String docId = hit.getContent().getId();
+            elasticIds.add(docId);
+
+            // Chỉ lấy highlight của content
+            List<String> contentHighlights = hit.getHighlightField("content");
+            if (contentHighlights != null && !contentHighlights.isEmpty()) {
+                highlightMap.put(docId, contentHighlights.get(0));
+            }
+        });
+
+        // 4. FETCH DB (Giữ nguyên)
         List<FileNode> dbNodes = fileNodeRepository.findAllById(elasticIds);
-
-        // Tạo Map để tra cứu nhanh: ID -> Node
         Map<String, FileNode> nodeMap = dbNodes.stream()
                 .collect(Collectors.toMap(FileNode::getId, Function.identity()));
 
-        // --- 5. MAP LẠI THEO THỨ TỰ ELASTIC & TÍNH TOÁN QUYỀN ---
+        // 5. MAP RESPONSE (Giữ nguyên)
         return elasticIds.stream()
-                .map(nodeMap::get) // Lấy Node từ Map theo ID đã sort
-                .filter(Objects::nonNull) // Lọc bỏ null (trường hợp Elastic có index nhưng DB đã xóa chưa kịp sync)
+                .map(nodeMap::get)
+                .filter(Objects::nonNull)
                 .map(node -> {
-                    // Gọi hàm convert có tính toán Permission (Feudal System) từ FileStorageService
-                    return fileStorageService.convertToResponse(node, userId);
+                    FileResponse res = fileStorageService.convertToResponse(node, userId);
+                    // Inject Highlight
+                    res.setHighlightedContent(highlightMap.get(node.getId()));
+                    return res;
                 })
                 .collect(Collectors.toList());
     }

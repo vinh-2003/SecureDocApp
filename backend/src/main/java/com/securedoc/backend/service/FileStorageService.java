@@ -113,12 +113,6 @@ public class FileStorageService {
     private final CryptoUtils cryptoUtils;
     private final Tika tika;
 
-    private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
-            "application/pdf", // .pdf
-            "application/msword", // .doc
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" // .docx
-    );
-
     /**
      * 1. HÀM DÙNG CHUNG: KIỂM TRA QUYỀN & LẤY THÔNG TIN THỪA KẾ - Check tồn tại
      * folder cha - Check quyền User - Lấy Ancestors, Permissions
@@ -267,6 +261,10 @@ public class FileStorageService {
         // (Hàm này trả về ID GridFS và IV)
         StoredFileResult storedResult = coreFileService.storeWithExistingKey(inputStream, fileName, mimeType, fileKey);
 
+        boolean supportPreview = isSupportPreview(mimeType);
+
+        EFileStatus initialStatus = supportPreview ? EFileStatus.PROCESSING : EFileStatus.AVAILABLE;
+
         // 3. Tạo Metadata (FileNode)
         FileNode fileNode = FileNode.builder()
                 .name(fileName)
@@ -279,7 +277,7 @@ public class FileStorageService {
                 .extension(getExt(fileName))
                 .gridFsId(storedResult.getGridFsId())
                 .ownerId(userId)
-                .status(EFileStatus.PROCESSING) // Hoặc PROCESSING
+                .status(initialStatus)
                 .isEncrypted(true)
                 .isDeleted(false)
                 .publicAccess(context.getPublicAccess())
@@ -311,7 +309,7 @@ public class FileStorageService {
         // 6. Trigger Async Task (Tách trang / Xử lý hậu kỳ)
         // TỐI ƯU QUAN TRỌNG: Không truyền byte[] để tránh tràn RAM.
         // Service Async sẽ tự tải file từ GridFS về để xử lý.
-        if (isSupportPreview(mimeType)) {
+        if (supportPreview) {
             // Chỉ truyền Node và Key giải mã (bản chưa encrypt)
             fileProcessorService.processFilePages(savedNode, fileKey);
         }
@@ -329,10 +327,6 @@ public class FileStorageService {
         String realMimeType;
         try (InputStream stream = file.getInputStream()) {
             realMimeType = tika.detect(stream);
-        }
-
-        if (!ALLOWED_MIME_TYPES.contains(realMimeType)) {
-            throw new AppException(AppErrorCode.INVALID_FILE_FORMAT);
         }
 
         // B. Trích xuất Text (Optional - Fail safe)

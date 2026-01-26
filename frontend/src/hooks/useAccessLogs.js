@@ -3,7 +3,7 @@ import { toast } from 'react-toastify';
 import debounce from 'lodash/debounce';
 import adminService from '../services/adminService';
 
-export const useAccessLogs = () => {
+const useAccessLogs = () => {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [pagination, setPagination] = useState({
@@ -82,3 +82,5 @@ export const useAccessLogs = () => {
         fetchLogs
     };
 };
+
+export default useAccessLogs;

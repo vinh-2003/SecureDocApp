@@ -31,8 +31,8 @@ const DEFAULT_VALUES = {
 const FILE_TYPE_OPTIONS = [
     { value: '', label: 'Tất cả' },
     { value: 'FOLDER', label: 'Thư mục' },
-    { value: 'pdf', label: 'PDF (. pdf)' },
-    { value: 'docx', label: 'Word (. docx)' },
+    { value: 'pdf', label: 'PDF (.pdf)' },
+    { value: 'docx', label: 'Word (.docx)' },
     { value: 'xlsx', label: 'Excel (.xlsx)' },
     { value: 'jpg', label: 'Ảnh (.jpg)' }
 ];

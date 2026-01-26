@@ -3,7 +3,7 @@ import {
     FaTimes, FaUserCircle,
     FaUserPlus, FaCaretDown, FaLink
 } from 'react-icons/fa';
-import usePermissionHelpers from '../../hooks/usePermissionHelpers';
+import { usePermissionHelpers } from '../../hooks';
 import { PublicAccessSelect, Loading } from '../Common';
 
 /**

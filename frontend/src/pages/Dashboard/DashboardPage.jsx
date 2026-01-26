@@ -287,24 +287,111 @@ const DashboardPage = () => {
 
             </div>
             {/* CONTEXT MENUS */}
-            <BackgroundContextMenu menuState={contextMenu} onClose={closeContextMenu} onAction={handleBackgroundAction} permissions={currentPermissions} />
-            <ItemContextMenu menuState={itemMenu} onClose={closeItemMenu} onAction={handleMenuAction} />
-            <ItemContextMenu menuState={breadcrumbMenu} onClose={closeBreadcrumbMenu} onAction={handleMenuAction} />
+            <BackgroundContextMenu
+                menuState={contextMenu}
+                onClose={closeContextMenu}
+                onAction={handleBackgroundAction}
+                permissions={currentPermissions}
+            />
+            <ItemContextMenu
+                menuState={itemMenu}
+                onClose={closeItemMenu}
+                onAction={handleMenuAction}
+            />
+            <ItemContextMenu
+                menuState={breadcrumbMenu}
+                onClose={closeBreadcrumbMenu}
+                onAction={handleMenuAction}
+            />
 
             {/* MODALS */}
-            <CreateFolderModal isOpen={fileActions.showCreateModal} onClose={fileActions.closeCreateFolderModal} onSubmit={(name) => { fileActions.setNewFolderName(name); fileActions.submitCreateFolder({ preventDefault: () => { } }); }} value={fileActions.newFolderName} onChange={fileActions.setNewFolderName} />
-            <RenameModal isOpen={fileActions.showRenameModal} onClose={fileActions.closeRenameModal} onSubmit={() => fileActions.submitRename({ preventDefault: () => { } })} item={fileActions.renameData.item} value={fileActions.renameData.newName} onChange={(val) => fileActions.setRenameData({ ...fileActions.renameData, newName: val })} />
-            <DescriptionModal isOpen={fileActions.showDescModal} onClose={fileActions.closeDescModal} onSubmit={() => fileActions.submitDescription({ preventDefault: () => { } })} item={fileActions.descData.item} value={fileActions.descData.description} onChange={(val) => fileActions.setDescData({ ...fileActions.descData, description: val })} />
-            <FileInfoModal isOpen={fileActions.showInfoModal} onClose={fileActions.closeInfoModal} data={fileActions.infoData} loading={fileActions.infoLoading} currentUserId={currentUserId} />
-            <ShareModal isOpen={fileActions.showShareModal} onClose={fileActions.closeShareModal} data={fileActions.shareData} loading={fileActions.shareLoading} currentUserId={currentUserId} emailInput={fileActions.emailInput} onEmailChange={fileActions.setEmailInput} permissionInput={fileActions.permissionInput} onPermissionChange={fileActions.setPermissionInput} onAddUser={fileActions.handleAddUserShare} onRevokeClick={fileActions.clickRevoke} onUpdatePermission={fileActions.handleUpdatePermission} onChangePublicAccess={fileActions.handleChangePublicAccess} onCopyLink={fileActions.copyShareLink} />
-            <ConfirmRevokeModal isOpen={fileActions.showConfirmRevokeModal} onClose={fileActions.closeConfirmRevokeModal} onConfirm={fileActions.confirmRevoke} user={fileActions.userToRevoke} loading={fileActions.revokeLoading} />
-            <MoveFileModal isOpen={fileActions.showMoveModal} onClose={fileActions.closeMoveModal} selectedItems={selectedFiles} onSuccess={fileActions.handleMoveSuccess} />
-            <DeleteConfirmModal isOpen={fileActions.showDeleteModal} onClose={fileActions.closeDeleteModal} onConfirm={fileActions.executeDelete} count={fileActions.filesToDelete.length} isLoading={fileActions.deleting} isPermanent={false} />
+            <CreateFolderModal
+                isOpen={fileActions.showCreateModal}
+                onClose={fileActions.closeCreateFolderModal}
+                onSubmit={(name) => {
+                    fileActions.setNewFolderName(name);
+                    fileActions.submitCreateFolder({ preventDefault: () => { } });
+                }}
+                value={fileActions.newFolderName}
+                onChange={fileActions.setNewFolderName}
+            />
+            <RenameModal
+                isOpen={fileActions.showRenameModal}
+                onClose={fileActions.closeRenameModal}
+                onSubmit={() => fileActions.submitRename({ preventDefault: () => { } })}
+                item={fileActions.renameData.item}
+                value={fileActions.renameData.newName}
+                onChange={(val) => fileActions.setRenameData({ ...fileActions.renameData, newName: val })}
+            />
+            <DescriptionModal
+                isOpen={fileActions.showDescModal}
+                onClose={fileActions.closeDescModal}
+                onSubmit={() => fileActions.submitDescription({ preventDefault: () => { } })}
+                item={fileActions.descData.item}
+                value={fileActions.descData.description}
+                onChange={(val) => fileActions.setDescData({ ...fileActions.descData, description: val })}
+            />
+            <FileInfoModal
+                isOpen={fileActions.showInfoModal}
+                onClose={fileActions.closeInfoModal}
+                data={fileActions.infoData}
+                loading={fileActions.infoLoading}
+                currentUserId={currentUserId}
+            />
+            <ShareModal
+                isOpen={fileActions.showShareModal}
+                onClose={fileActions.closeShareModal}
+                data={fileActions.shareData}
+                loading={fileActions.shareLoading}
+                currentUserId={currentUserId}
+                emailInput={fileActions.emailInput}
+                onEmailChange={fileActions.setEmailInput}
+                permissionInput={fileActions.permissionInput}
+                onPermissionChange={fileActions.setPermissionInput}
+                onAddUser={fileActions.handleAddUserShare}
+                onRevokeClick={fileActions.clickRevoke}
+                onUpdatePermission={fileActions.handleUpdatePermission}
+                onChangePublicAccess={fileActions.handleChangePublicAccess}
+                onCopyLink={fileActions.copyShareLink}
+            />
+            <ConfirmRevokeModal
+                isOpen={fileActions.showConfirmRevokeModal}
+                onClose={fileActions.closeConfirmRevokeModal}
+                onConfirm={fileActions.confirmRevoke}
+                user={fileActions.userToRevoke}
+                loading={fileActions.revokeLoading}
+            />
+            <MoveFileModal
+                isOpen={fileActions.showMoveModal}
+                onClose={fileActions.closeMoveModal}
+                selectedItems={selectedFiles}
+                onSuccess={fileActions.handleMoveSuccess}
+            />
+            <DeleteConfirmModal
+                isOpen={fileActions.showDeleteModal}
+                onClose={fileActions.closeDeleteModal}
+                onConfirm={fileActions.executeDelete}
+                count={fileActions.filesToDelete.length}
+                isLoading={fileActions.deleting}
+                isPermanent={false}
+            />
 
             {/* HIDDEN INPUTS */}
-            <input type="file" className="hidden" ref={fileActions.folderInputRef} onChange={fileActions.onFolderSelect} webkitdirectory="" directory="" multiple />
-            <input type="file" multiple className="hidden" ref={fileActions.fileInputRef} onChange={fileActions.onFileSelect} accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-
+            <input
+                type="file"
+                className="hidden"
+                ref={fileActions.folderInputRef}
+                onChange={fileActions.onFolderSelect}
+                webkitdirectory="" directory=""
+                multiple
+            />
+            <input
+                type="file"
+                multiple
+                className="hidden"
+                ref={fileActions.fileInputRef}
+                onChange={fileActions.onFileSelect}
+            />
         </>
     );
 };

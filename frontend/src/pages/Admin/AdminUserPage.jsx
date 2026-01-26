@@ -3,13 +3,12 @@ import { toast } from 'react-toastify';
 import { FaSearch } from 'react-icons/fa';
 
 // Imports
-import { useAdminUsers } from '../../hooks/useAdminUsers'; // Import Hook
-import UsersTable from '../../components/Admin/UsersTable'; // Import Table Component
+import { useAdminUsers } from '../../hooks';
 import { Loading, ConfirmModal } from '../../components/Common';
-import RoleModal from '../../components/Admin/RoleModal';
+import { RoleModal, UsersTable } from '../../components/Admin';
 
 import adminService from '../../services/adminService';
-import authService from '../../services/authService'; // Để gọi resend verification
+import authService from '../../services/authService';
 
 const AdminUserPage = () => {
     // --- 1. USE CUSTOM HOOK ---

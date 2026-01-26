@@ -89,23 +89,6 @@ const useFileActions = (options = {}) => {
         }
     }, []);
 
-    /**
-     * Kiểm tra định dạng file được phép upload
-     */
-    const isAllowedFile = useCallback((file) => {
-        const allowedExtensions = ['pdf', 'doc', 'docx'];
-        const allowedMimeTypes = [
-            'application/pdf',
-            'application/msword',
-            'application/vnd. openxmlformats-officedocument.wordprocessingml.document'
-        ];
-
-        if (allowedMimeTypes.includes(file.type)) return true;
-
-        const ext = file.name.split('.').pop().toLowerCase();
-        return allowedExtensions.includes(ext);
-    }, []);
-
     // ========== DOWNLOAD ACTIONS ==========
 
     /**
@@ -595,18 +578,13 @@ const useFileActions = (options = {}) => {
         if (!rawFiles || rawFiles.length === 0) return;
 
         const allFiles = Array.from(rawFiles);
-        const validFiles = allFiles.filter(file => isAllowedFile(file));
 
-        if (validFiles.length < allFiles.length) {
-            toast.warning(`Đã bỏ qua ${allFiles.length - validFiles.length} tệp không hỗ trợ (Chỉ chấp nhận PDF, Word).`);
-        }
-
-        if (validFiles.length > 0 && contextHandleUploadFile) {
-            await contextHandleUploadFile(validFiles);
+        if (allFiles.length > 0 && contextHandleUploadFile) {
+            await contextHandleUploadFile(allFiles);
         }
 
         e.target.value = null;
-    }, [isAllowedFile, contextHandleUploadFile]);
+    }, [contextHandleUploadFile]);
 
     /**
      * Xử lý khi chọn folder upload
@@ -616,24 +594,13 @@ const useFileActions = (options = {}) => {
         if (!rawFiles || rawFiles.length === 0) return;
 
         const allFiles = Array.from(rawFiles);
-        const validFiles = allFiles.filter(file => isAllowedFile(file));
-
-        if (validFiles.length === 0) {
-            toast.error("Thư mục không chứa tệp PDF hoặc Word nào.");
-            e.target.value = null;
-            return;
-        }
-
-        if (validFiles.length < allFiles.length) {
-            toast.info(`Đang tải lên ${validFiles.length} tệp hợp lệ trong thư mục. `);
-        }
 
         if (contextHandleUploadFolder) {
-            await contextHandleUploadFolder(validFiles);
+            await contextHandleUploadFolder(allFiles);
         }
 
         e.target.value = null;
-    }, [isAllowedFile, contextHandleUploadFolder]);
+    }, [contextHandleUploadFolder]);
 
     // ========== RETRY ACTION ==========
 
@@ -826,7 +793,6 @@ const useFileActions = (options = {}) => {
 
         // Helpers
         generateShareLink,
-        isAllowedFile
     };
 };
 

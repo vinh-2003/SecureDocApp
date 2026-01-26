@@ -6,7 +6,7 @@ import { ConfirmModal, Loading } from '../Common';
 import UserAccessCard from './UserAccessCard';
 
 // Hooks
-import useAccessList from '../../hooks/useAccessList';
+import { useAccessList } from '../../hooks';
 
 /**
  * Modal quản lý quyền truy cập trang của file

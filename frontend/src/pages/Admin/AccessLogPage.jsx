@@ -2,8 +2,8 @@ import React from 'react';
 import { FaSearch, FaFilter } from 'react-icons/fa';
 
 // Components & Hooks
-import { useAccessLogs } from '../../hooks/useAccessLogs';
-import LogsTable from '../../components/Admin/LogsTable';
+import { useAccessLogs } from '../../hooks';
+import { LogsTable } from '../../components/Admin';
 import { Loading } from '../../components/Common';
 
 const AccessLogPage = () => {

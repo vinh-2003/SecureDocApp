@@ -53,4 +53,6 @@ public class FileResponse {
     private LocalDateTime sharedAt;
 
     private UserPermissions permissions;
+
+    private String highlightedContent;
 }

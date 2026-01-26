@@ -4,23 +4,21 @@ import { FaCloudUploadAlt } from 'react-icons/fa';
 // Context
 import { FileContext } from '../../context/FileContext';
 
-// Components - Import từ cùng folder
+// Components
 import UploadDropdown from './UploadDropdown';
 import SidebarNav from './SidebarNav';
 import SidebarLogo from './SidebarLogo';
 import { CreateFolderModal } from '../Dashboard';
 
 // Hooks
-import { useUploadPermissions, useFileValidation } from '../../hooks';
-
-// Constants
-import { FILE_ACCEPT } from '../../constants';
+import { useUploadPermissions, useFileActions } from '../../hooks';
 
 /**
  * Sidebar chính của ứng dụng
+ * [REFACTORED] Sử dụng useFileActions để tái sử dụng logic
  */
 const Sidebar = () => {
-    // Context
+    // 1. Context
     const {
         handleCreateFolder,
         handleUploadFile,
@@ -28,19 +26,20 @@ const Sidebar = () => {
         currentPermissions
     } = useContext(FileContext);
 
-    // Hooks
+    // 2. Hooks Permissions
     const permissions = useUploadPermissions(currentPermissions);
-    const { validateFiles } = useFileValidation();
 
-    // State
+    // 3. INIT HOOK useFileActions
+    // Truyền các hàm xử lý từ Context vào Hook để Hook gọi khi cần
+    const fileActions = useFileActions({
+        handleCreateFolder,
+        handleUploadFile,
+        handleUploadFolder
+    });
+
+    // 4. Local UI State (Chỉ giữ lại state liên quan đến giao diện Sidebar)
     const [showUploadMenu, setShowUploadMenu] = useState(false);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newFolderName, setNewFolderName] = useState('');
-
-    // Refs
     const menuRef = useRef(null);
-    const fileInputRef = useRef(null);
-    const folderInputRef = useRef(null);
 
     // Đóng menu khi click ra ngoài
     useEffect(() => {
@@ -54,7 +53,7 @@ const Sidebar = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // === HANDLERS ===
+    // === HANDLERS UI ===
 
     const toggleUploadMenu = () => {
         if (permissions.canDoAnything) {
@@ -62,55 +61,11 @@ const Sidebar = () => {
         }
     };
 
-    const openCreateFolderModal = () => {
-        setShowCreateModal(true);
-        setShowUploadMenu(false);
-    };
-
-    const submitCreateFolder = async (e) => {
-        // e.preventDefault();
-        if (!newFolderName.trim()) return;
-
-        const success = await handleCreateFolder(newFolderName);
-        if (success) {
-            setShowCreateModal(false);
-            setNewFolderName('');
-        }
-    };
-
-    const triggerFileInput = () => {
-        fileInputRef.current?.click();
-    };
-
-    const triggerFolderInput = () => {
-        folderInputRef.current?.click();
-    };
-
-    const handleFileSelect = async (e) => {
-        const rawFiles = e.target.files;
-        if (!rawFiles?.length) return;
-
-        const validFiles = validateFiles(rawFiles, { context: 'file' });
-
-        if (validFiles.length > 0) {
-            await handleUploadFile(validFiles);
-        }
-
-        e.target.value = null;
-        setShowUploadMenu(false);
-    };
-
-    const handleFolderSelect = async (e) => {
-        const rawFiles = e.target.files;
-        if (!rawFiles?.length) return;
-
-        const validFiles = validateFiles(rawFiles, { context: 'folder' });
-
-        if (validFiles.length > 0) {
-            await handleUploadFolder(validFiles);
-        }
-
-        e.target.value = null;
+    /**
+     * Helper: Thực hiện hành động từ hook và đóng menu dropdown
+     */
+    const handleAction = (actionFn) => {
+        if (actionFn) actionFn();
         setShowUploadMenu(false);
     };
 
@@ -132,26 +87,30 @@ const Sidebar = () => {
                     {showUploadMenu && permissions.canDoAnything && (
                         <UploadDropdown
                             permissions={permissions}
-                            onCreateFolder={openCreateFolderModal}
-                            onUploadFile={triggerFileInput}
-                            onUploadFolder={triggerFolderInput}
+                            // Kết nối các hành động từ Hook thông qua hàm wrapper để đóng menu
+                            onCreateFolder={() => handleAction(fileActions.openCreateFolderModal)}
+                            onUploadFile={() => handleAction(fileActions.triggerFileUpload)}
+                            onUploadFolder={() => handleAction(fileActions.triggerFolderUpload)}
                         />
                     )}
 
-                    {/* Hidden Inputs */}
+                    {/* HIDDEN INPUTS - Sử dụng Refs và Handlers trực tiếp từ Hook */}
+                    {/* Input Upload File */}
                     <input
                         type="file"
                         multiple
                         className="hidden"
-                        ref={fileInputRef}
-                        onChange={handleFileSelect}
-                        accept={FILE_ACCEPT}
+                        ref={fileActions.fileInputRef}
+                        onChange={fileActions.onFileSelect}
+                        // Không có 'accept' -> Cho phép mọi loại file
                     />
+                    
+                    {/* Input Upload Folder */}
                     <input
                         type="file"
                         className="hidden"
-                        ref={folderInputRef}
-                        onChange={handleFolderSelect}
+                        ref={fileActions.folderInputRef}
+                        onChange={fileActions.onFolderSelect}
                         webkitdirectory=""
                         directory=""
                         multiple
@@ -162,13 +121,17 @@ const Sidebar = () => {
                 <SidebarNav />
             </aside>
 
-            {/* Create Folder Modal */}
+            {/* Create Folder Modal - Sử dụng State và Handlers từ Hook */}
             <CreateFolderModal
-                isOpen={showCreateModal}
-                onClose={() => setShowCreateModal(false)}
-                onSubmit={submitCreateFolder}
-                value={newFolderName}
-                onChange={setNewFolderName}
+                isOpen={fileActions.showCreateModal}
+                onClose={fileActions.closeCreateFolderModal}
+                onSubmit={(name) => {
+                    // Cập nhật state name trong hook trước khi submit
+                    fileActions.setNewFolderName(name);
+                    fileActions.submitCreateFolder({ preventDefault: () => { } });
+                }}
+                value={fileActions.newFolderName}
+                onChange={fileActions.setNewFolderName}
             />
         </>
     );

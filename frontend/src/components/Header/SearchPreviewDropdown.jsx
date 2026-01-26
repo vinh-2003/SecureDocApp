@@ -96,30 +96,48 @@ const ResultItem = ({ item, onClick }) => {
         <li className="border-b last:border-none">
             <div
                 onClick={onClick}
-                className="flex items-center justify-between px-4 py-3 hover:bg-blue-50 transition cursor-pointer group"
+                // Thay đổi items-center -> items-start để căn lề trên cùng nếu nội dung dài
+                className="flex items-start justify-between px-4 py-3 hover:bg-blue-50 transition cursor-pointer group"
             >
-                {/* Left:  Icon + Name + Owner */}
-                <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
-                    <FileIcon type={item.type} extension={item.extension} />
+                {/* Left: Icon + Info */}
+                <div className="flex items-start gap-3 overflow-hidden flex-1 min-w-0">
+                    {/* Icon Container (thêm mt-1 để căn đều với dòng đầu tiên) */}
+                    <div className="mt-0.5 flex-shrink-0">
+                        <FileIcon type={item.type} extension={item.extension} />
+                    </div>
 
-                    <div className="overflow-hidden flex flex-col min-w-0">
+                    <div className="overflow-hidden flex flex-col min-w-0 w-full">
+                        {/* Tên file */}
                         <p
                             className="text-sm font-medium text-gray-800 truncate group-hover:text-blue-700"
                             title={item.name}
                         >
                             {item.name}
                         </p>
-                        <p className="text-xs text-gray-500 truncate">
+                        
+                        {/* Người sở hữu */}
+                        <p className="text-xs text-gray-500 truncate mb-0.5">
                             <span className="opacity-75">Bởi: </span>
                             <span className="font-medium text-gray-600">
                                 {item.ownerName || item.owner?.name || "Ẩn danh"}
                             </span>
                         </p>
+
+                        {/* [NEW] Highlight Content Section */}
+                        {item.highlightedContent && (
+                            <div className="mt-1 text-xs text-gray-500 font-normal bg-yellow-50/60 p-1.5 rounded border border-yellow-100/50">
+                                <span 
+                                    className="line-clamp-2 break-words search-highlight-content"
+                                    // Render HTML từ backend trả về (<mark>...</mark>)
+                                    dangerouslySetInnerHTML={{ __html: item.highlightedContent }} 
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Right:  Date */}
-                <div className="ml-4 whitespace-nowrap text-right flex-shrink-0">
+                {/* Right: Date */}
+                <div className="ml-4 whitespace-nowrap text-right flex-shrink-0 mt-0.5">
                     <p className="text-xs text-gray-400 group-hover:text-blue-500 transition-colors">
                         {formatDateShort(item.updatedAt)}
                     </p>

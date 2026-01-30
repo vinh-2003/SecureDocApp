@@ -10,7 +10,7 @@ import { AdvancedSearchForm } from '../Search';
 import { ChangePasswordModal } from '../Profile';
 
 // Hooks
-import { useSearchPreview } from '../../hooks';
+import { useSearchPreview, useImageSearch } from '../../hooks';
 
 /**
  * =============================================================================
@@ -31,6 +31,12 @@ const Header = ({ onToggleSidebar }) => {
     // State
     const [showAdvancedModal, setShowAdvancedModal] = useState(false);
     const [showChangePassword, setShowChangePassword] = useState(false);
+
+    const {
+        fileInputRef,
+        triggerUpload,
+        handleFileChange
+    } = useImageSearch();
 
     // Search preview hook
     const searchPreview = useSearchPreview({
@@ -95,7 +101,7 @@ const Header = ({ onToggleSidebar }) => {
             <header className="h-16 bg-white shadow-sm sticky top-0 z-40 flex items-center justify-between px-6">
                 {/* Left:  Mobile Toggle */}
                 <div className="flex items-center gap-4">
-                    
+
                 </div>
 
                 {/* Center: Search Bar */}
@@ -106,6 +112,7 @@ const Header = ({ onToggleSidebar }) => {
                         onKeyDown={handleKeyDown}
                         onFocus={searchPreview.handleFocus}
                         onAdvancedClick={() => setShowAdvancedModal(true)}
+                        onImageClick={triggerUpload}
                     />
 
                     {/* Preview Dropdown */}
@@ -125,6 +132,15 @@ const Header = ({ onToggleSidebar }) => {
                     onChangePassword={() => setShowChangePassword(true)}
                 />
             </header>
+
+            {/* [MỚI] Input File Ẩn cho Image Search */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+            />
 
             {/* Modals */}
             {showAdvancedModal && (

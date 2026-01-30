@@ -106,23 +106,28 @@ public class FileController {
     }
 
     /**
-     * TẢI XUỐNG HOẶC XEM FILE
-     * URL: /api/files/download/{id}             (Tải)
+     * TẢI XUỐNG HOẶC XEM FILE (Preview)
+     * URL:
+     * - Tải về: /api/files/download/{id}
+     * - Xem trước: /api/files/download/{id}?inline=true
      */
     @GetMapping("/download/{id}")
-    public ResponseEntity<Resource> downloadFile(@PathVariable String id) {
+    public ResponseEntity<Resource> downloadFile(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "false") boolean inline // [1] Thêm tham số này
+    ) {
         try {
-            String userId = getCurrentUserId(); // Bắt buộc Login
+            String userId = getCurrentUserId();
 
-            // Gọi Service (Đã bao gồm logic Decrypt + Ghi Log Recent)
+            // Gọi Service (Logic Decrypt + Log Recent + Check quyền vẫn giữ nguyên)
             FileDownloadResponse fileResponse = fileStorageService.downloadFile(id, userId);
 
             // Encode tên file tiếng Việt cho Header
             String encodedFileName = URLEncoder.encode(fileResponse.getFileName(), StandardCharsets.UTF_8)
                     .replaceAll("\\+", "%20");
 
-            // Quyết định kiểu trả về (Attachment hay Inline)
-            String dispositionType = "attachment";
+            // [2] Quyết định kiểu trả về dựa trên tham số inline
+            String dispositionType = inline ? "inline" : "attachment";
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(fileResponse.getContentType()))

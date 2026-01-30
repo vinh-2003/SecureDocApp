@@ -132,21 +132,60 @@ const useFileActions = (options = {}) => {
         }
     }, []);
 
+    const handlePreview = useCallback(async (file) => {
+        const toastId = toast.loading(`Đang mở: ${file.name}...`);
+        try {
+            const response = await fileService.previewFile(file.id);
+            
+            // Tạo Blob URL từ response
+            const fileType = response.type || file.mimeType;
+            const blob = new Blob([response], { type: fileType });
+            const url = window.URL.createObjectURL(blob);
+
+            // Mở tab mới của trình duyệt
+            window.open(url, '_blank');
+
+            // Cleanup memory sau 1 phút
+            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+            
+            toast.dismiss(toastId);
+        } catch (error) {
+            toast.dismiss(toastId);
+            toast.error("Không thể xem trước file này.");
+        }
+    }, []);
+
     /**
      * Click vào file để xem hoặc tải
      */
     const handleFileClick = useCallback((file) => {
-        const isViewable =
-            file.mimeType === 'application/pdf' ||
-            file.name.toLowerCase().endsWith('.docx') ||
-            file.name.toLowerCase().endsWith('.doc');
+        const mime = file.mimeType || '';
+        const name = file.name.toLowerCase();
 
-        if (isViewable) {
+        // [NHÓM 1] PDF & Word -> Chuyển hướng sang trang View riêng của ứng dụng
+        const isInternalViewer = 
+            mime === 'application/pdf' ||
+            name.endsWith('.docx') ||
+            name.endsWith('.doc');
+
+        // [NHÓM 2] Ảnh, Video, Text đơn giản -> Mở tab mới xem ngay (Browser Inline)
+        const isBrowserPreview = [
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/webm',
+            'text/plain'
+        ].includes(mime);
+
+        if (isInternalViewer) {
+            // Navigate đúng theo yêu cầu của bạn
             navigate(`/file/view/${file.id}`);
+        } else if (isBrowserPreview) {
+            // Mở tab mới xem ảnh/video
+            handlePreview(file);
         } else {
+            // Còn lại (Zip, Exe, Unknown...) -> Tải xuống
             handleDownload(file);
         }
-    }, [navigate, handleDownload]);
+    }, [navigate, handleDownload, handlePreview]);
 
     // ========== RENAME ACTIONS ==========
 

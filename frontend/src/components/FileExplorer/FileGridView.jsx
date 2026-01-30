@@ -165,7 +165,7 @@ const FileGridView = ({
                 {/* Nút 3 chấm góc phải */}
                 <button
                     onClick={(e) => onMenuClick?.(e, file)}
-                    className="absolute top-2 right-2 p-1. 5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition z-10"
+                    className="absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition z-10"
                 >
                     <FaEllipsisV />
                 </button>

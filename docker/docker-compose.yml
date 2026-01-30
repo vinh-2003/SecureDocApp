@@ -1,37 +1,137 @@
 version: '3.8'
 
 services:
-  # # ==========================================
-  # # GATEWAY (NGINX - Cổng chính)
-  # # ==========================================
-  # nginx-gateway:
-  #   image: nginx:alpine
-  #   container_name: doc_gateway
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx-gateway.conf:/etc/nginx/conf.d/default.conf
-  #     - ./certbot/conf:/etc/letsencrypt # Chứa chứng chỉ SSL
-  #     - ./certbot/www:/var/www/certbot  # Chứa file xác thực
-  #   depends_on:
-  #     - frontend
-  #     - backend
-  #   networks:
-  #     - doc_network
+  # ==========================================
+  # INFRASTRUCTURE (DATABASE & SEARCH)
+  # ==========================================
 
-  # # ==========================================
-  # # CERTBOT
-  # # ==========================================
-  # certbot:
-  #   image: certbot/certbot
-  #   container_name: doc_certbot
-  #   volumes:
-  #     - ./certbot/conf:/etc/letsencrypt
-  #     - ./certbot/www:/var/www/certbot
-  #   networks:
-  #     - doc_network
+  # 1. MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: doc_mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin_password
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - doc_network
+    restart: unless-stopped
 
+  # 2. Mongo Express (Giao diện quản lý DB)
+  mongo-express:
+    image: mongo-express
+    container_name: doc_mongo_express
+    ports:
+      - "8099:8081"
+    environment:
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin_password
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=admin_password
+      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin
+    depends_on:
+      - mongodb
+    networks:
+      - doc_network
+    restart: always
+
+  # 3. Elasticsearch (Tìm kiếm & Vector)
+  elasticsearch:
+    build:
+      context: .
+      dockerfile: Dockerfile.elasticsearch
+    container_name: doc_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g" # Tăng lên 2GB để chạy mượt
+      - ELASTIC_PASSWORD=dyLuGaROSNhYQ9Jvq9vD # [QUAN TRỌNG] Khớp với application.yaml
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - doc_network
+    restart: unless-stopped
+
+  # 4. Kibana (Giao diện Elasticsearch)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.7.0
+    container_name: doc_kibana
+    ports:
+      - "5699:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic # Dùng user elastic quyền cao nhất
+      - ELASTICSEARCH_PASSWORD=dyLuGaROSNhYQ9Jvq9vD # Khớp với pass trên
+    depends_on:
+      - elasticsearch
+    networks:
+      - doc_network
+    restart: unless-stopped
+
+  # ==========================================
+  # AI SERVICES (XỬ LÝ FILE)
+  # ==========================================
+
+  # 5. Tika (Đọc văn bản từ PDF/Word)
+  tika:
+    build:
+      context: .
+      dockerfile: Dockerfile.tika
+    container_name: doc_tika
+    ports:
+      - "9998:9998"
+    networks:
+      - doc_network
+    restart: unless-stopped
+  # 6. CLIP Server (Vector hóa hình ảnh & text)
+  clip-server:
+    image: jinaai/clip-server:latest
+    container_name: doc_clip_server
+    # Lệnh chỉ trỏ tới file config, không dùng flags [1]
+    command: ["/flow.yml"] 
+    ports:
+      - "51000:51000"
+    volumes:
+      # 1. Mount file cấu hình vào trong container
+      - ./flow.yml:/flow.yml
+      # 2. Mount thư mục cache của máy host để lưu model đã tải [5]
+      - ./clip_cache:/home/cas/.cache
+    networks:
+      - doc_network
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # Số lượng GPU muốn dùng (hoặc 'all')
+              capabilities: [gpu]
+
+  # 7. Whisper (Chuyển giọng nói thành văn bản)
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: doc_whisper
+    ports:
+      - "8000:8000"
+    environment:
+      - WHISPER_MODEL=small
+      - WHISPER_LANGUAGE=vi
+    volumes:
+      - whisper_models:/root/.cache/huggingface
+    networks:
+      - doc_network
+    restart: unless-stopped
   # # ==========================================
   # # BACKEND (Spring Boot)
   # # ==========================================
@@ -78,79 +178,42 @@ services:
   #   networks:
   #     - doc_network
 
-  # ==========================================
-  # INFRASTRUCTURE
-  # ==========================================
-  mongodb:
-    image: mongo:6.0
-    container_name: doc_mongodb
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=admin_password
-      - TZ=Asia/Ho_Chi_Minh
-    volumes:
-      - mongo_data:/data/db
-    # build pro -> cmt
-    ports:
-      - 27017:27017
-    networks:
-      - doc_network
+  # # ==========================================
+  # # GATEWAY (NGINX - Cổng chính)
+  # # ==========================================
+  # nginx-gateway:
+  #   image: nginx:alpine
+  #   container_name: doc_gateway
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx-gateway.conf:/etc/nginx/conf.d/default.conf
+  #     - ./certbot/conf:/etc/letsencrypt # Chứa chứng chỉ SSL
+  #     - ./certbot/www:/var/www/certbot  # Chứa file xác thực
+  #   depends_on:
+  #     - frontend
+  #     - backend
+  #   networks:
+  #     - doc_network
 
-  mongo-express:
-    image: mongo-express
-    container_name: doc_mongo_express
-    restart: always
-    ports:
-      - "8099:8081"
-    environment:
-      - ME_CONFIG_BASICAUTH_USERNAME=admin
-      - ME_CONFIG_BASICAUTH_PASSWORD=admin_password
-      - ME_CONFIG_MONGODB_SERVER=mongodb
-      - ME_CONFIG_MONGODB_PORT=27017
-      - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
-      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
-      - ME_CONFIG_MONGODB_ADMINPASSWORD=admin_password
-      - ME_CONFIG_MONGODB_AUTH_DATABASE=admin
-    depends_on:
-      - mongodb
-    networks:
-      - doc_network
-
-  elasticsearch:
-    build:
-      context: .
-      dockerfile: Dockerfile.elasticsearch
-    container_name: doc_elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
-      - TZ=Asia/Ho_Chi_Minh
-    volumes:
-      - es_data:/usr/share/elasticsearch/data
-    # build pro -> cmt
-    ports:
-      - 9200:9200
-    networks:
-      - doc_network
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.7.0
-    container_name: doc_kibana
-    ports:
-      - "5699:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=UFfpmkK03SsmNkQ8F03u
-    depends_on:
-      - elasticsearch
-    networks:
-      - doc_network
+  # # ==========================================
+  # # CERTBOT
+  # # ==========================================
+  # certbot:
+  #   image: certbot/certbot
+  #   container_name: doc_certbot
+  #   volumes:
+  #     - ./certbot/conf:/etc/letsencrypt
+  #     - ./certbot/www:/var/www/certbot
+  #   networks:
+  #     - doc_network
 
 volumes:
   mongo_data:
   es_data:
+  whisper_models:
+
 
 networks:
   doc_network:

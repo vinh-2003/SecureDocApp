@@ -1,6 +1,9 @@
 import React from 'react';
 import { FaUserCircle, FaFolder, FaFile, FaExternalLinkAlt } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify'; // [THÊM]
+import fileService from '../../services/fileService';
+
 import ActivityIcon from './ActivityIcon';
 import ActivityBadge from './ActivityBadge';
 import ActivityDetails from './ActivityDetails';
@@ -27,13 +30,73 @@ const ActivityItem = ({ activity, currentUserId, showTarget = true }) => {
     const isCurrentUser = actor?.id === currentUserId;
 
     // Click vào target node
-    const handleTargetClick = () => {
-        if (targetNodeExists && targetNodeId) {
-            if (targetNodeType === 'FOLDER') {
-                navigate(`/folders/${targetNodeId}`);
-            } else {
-                navigate(`/file/view/${targetNodeId}`);
+    const handleTargetClick = async () => {
+        if (!targetNodeExists || !targetNodeId) return;
+
+        // 1. Folder -> Navigate
+        if (targetNodeType === 'FOLDER') {
+            navigate(`/folders/${targetNodeId}`);
+            return;
+        }
+
+        const name = targetNodeName?.toLowerCase() || '';
+
+        // 2. File xem trong ứng dụng (PDF, Word)
+        const isInternalViewable =
+            name.endsWith('.pdf') ||
+            name.endsWith('.docx') ||
+            name.endsWith('.doc');
+
+        if (isInternalViewable) {
+            navigate(`/file/view/${targetNodeId}`);
+            return;
+        }
+
+        // 3. File xem nhanh trên trình duyệt (Ảnh, Video, Text)
+        // Kiểm tra đuôi file vì activity có thể không có mimeType
+        const isBrowserPreviewable = /\.(jpg|jpeg|png|gif|webp|mp4|webm|txt)$/i.test(name);
+
+        if (isBrowserPreviewable) {
+            const toastId = toast.loading(`Đang mở: ${targetNodeName}...`);
+            try {
+                // Gọi API lấy blob inline
+                const response = await fileService.previewFile(targetNodeId);
+
+                // Mime type lấy từ response header hoặc đoán từ đuôi file
+                const fileType = response.type || 'application/octet-stream';
+                const blob = new Blob([response], { type: fileType });
+                const url = window.URL.createObjectURL(blob);
+
+                window.open(url, '_blank');
+
+                setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                toast.dismiss(toastId);
+            } catch (error) {
+                toast.dismiss(toastId);
+                toast.error("Không thể xem trước file này.");
             }
+            return;
+        }
+
+        // 4. Các file còn lại -> Tải xuống
+        try {
+            const toastId = toast.loading("Đang bắt đầu tải xuống...");
+            const response = await fileService.downloadFile(targetNodeId);
+
+            const url = window.URL.createObjectURL(new Blob([response]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', targetNodeName);
+            document.body.appendChild(link);
+            link.click();
+
+            link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            toast.dismiss(toastId);
+        } catch (error) {
+            toast.dismiss();
+            toast.error("Lỗi khi tải file.");
         }
     };
 

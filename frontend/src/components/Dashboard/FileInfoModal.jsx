@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import {
     FaTimes, FaUserCircle, FaHistory,
-    FaFolder, FaFilePdf, FaFileWord, FaFileAlt
+    FaFolder, FaFilePdf, FaFileWord, FaFileAlt,
+    FaFileExcel, FaFilePowerpoint, FaFileVideo, 
+    FaFileAudio, FaFileArchive, FaFileCode, FaFileImage
 } from 'react-icons/fa';
 import { formatBytes, formatDate } from '../../utils/format';
 import { Loading, PublicAccessBadge, SharedUsersList } from '../Common';
@@ -25,14 +27,49 @@ const FileInfoModal = ({
     const getFileIcon = (file) => {
         if (!file) return <FaFileAlt className="text-gray-400 text-3xl" />;
 
-        const { type, mimeType } = file;
-        const className = "text-3xl";
+        const { type, mimeType, name, extension } = file;
+        const className = "text-3xl"; // Giữ nguyên size icon của Modal
+        
+        // Lấy extension (ưu tiên từ field extension, fallback sang parse tên)
+        const ext = extension?.toLowerCase() || name?.split('.').pop()?.toLowerCase() || '';
 
+        // 1. Folder
         if (type === 'FOLDER') return <FaFolder className={`text-yellow-500 ${className}`} />;
-        if (mimeType?.includes('pdf')) return <FaFilePdf className={`text-red-500 ${className}`} />;
-        if (mimeType?.includes('word') || mimeType?.includes('document')) {
-            return <FaFileWord className={`text-blue-500 ${className}`} />;
+
+        // 2. Office & Documents
+        if (mimeType?.includes('pdf') || ext === 'pdf') {
+            return <FaFilePdf className={`text-red-500 ${className}`} />;
         }
+        if (mimeType?.includes('word') || mimeType?.includes('document') || ['doc', 'docx'].includes(ext)) {
+            return <FaFileWord className={`text-blue-600 ${className}`} />;
+        }
+        if (mimeType?.includes('excel') || mimeType?.includes('spreadsheet') || mimeType?.includes('csv') || ['xls', 'xlsx', 'csv'].includes(ext)) {
+            return <FaFileExcel className={`text-green-600 ${className}`} />;
+        }
+        if (mimeType?.includes('presentation') || mimeType?.includes('powerpoint') || ['ppt', 'pptx'].includes(ext)) {
+            return <FaFilePowerpoint className={`text-orange-500 ${className}`} />;
+        }
+
+        // 3. Media
+        if (mimeType?.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
+            return <FaFileImage className={`text-purple-500 ${className}`} />;
+        }
+        if (mimeType?.includes('video') || ['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) {
+            return <FaFileVideo className={`text-pink-500 ${className}`} />;
+        }
+        if (mimeType?.includes('audio') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
+            return <FaFileAudio className={`text-yellow-500 ${className}`} />;
+        }
+
+        // 4. Archive & Code
+        if (mimeType?.includes('zip') || mimeType?.includes('compressed') || ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+            return <FaFileArchive className={`text-gray-600 ${className}`} />;
+        }
+        if (['html', 'css', 'js', 'jsx', 'java', 'py', 'json', 'xml', 'c', 'cpp'].includes(ext)) {
+            return <FaFileCode className={`text-gray-700 ${className}`} />;
+        }
+
+        // Default
         return <FaFileAlt className={`text-gray-400 ${className}`} />;
     };
 

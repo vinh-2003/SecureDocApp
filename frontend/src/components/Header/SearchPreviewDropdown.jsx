@@ -1,8 +1,13 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaFolder, FaFileAlt, FaFilePdf, FaFileWord, FaFileImage } from 'react-icons/fa';
+import { toast } from 'react-toastify';
+import { 
+    FaFolder, FaFileAlt, FaFilePdf, FaFileWord, FaFileImage,
+    FaFileExcel, FaFilePowerpoint, FaFileVideo, FaFileAudio, FaFileArchive, FaFileCode
+} from 'react-icons/fa';
 import { formatDateShort } from '../../utils/format';
 import { Spinner } from '../Common/Loading';
+import fileService from '../../services/fileService';
 
 /**
  * Dropdown hiển thị kết quả search preview
@@ -17,13 +22,75 @@ const SearchPreviewDropdown = ({
     const navigate = useNavigate();
 
     // Handle click vào item
-    const handleItemClick = (item) => {
+    const handleItemClick = async (item) => {
         onResultClick?.();
 
+        // 1. Folder
         if (item.type === 'FOLDER') {
             navigate(`/folders/${item.id}`);
-        } else {
+            return;
+        }
+
+        const mime = item.mimeType || '';
+        const name = item.name?.toLowerCase() || '';
+
+        // 2. File xem trong ứng dụng (PDF, Word)
+        const isInternalViewable = 
+            mime === 'application/pdf' ||
+            name.endsWith('.docx') ||
+            name.endsWith('.doc');
+
+        if (isInternalViewable) {
             navigate(`/file/view/${item.id}`);
+            return;
+        }
+
+        // 3. File xem nhanh trên trình duyệt (Ảnh, Video, Text)
+        const isBrowserPreviewable = [
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/webm',
+            'text/plain'
+        ].includes(mime);
+
+        if (isBrowserPreviewable) {
+            const toastId = toast.loading(`Đang mở: ${item.name}...`);
+            try {
+                const response = await fileService.previewFile(item.id);
+                
+                const fileType = response.type || mime;
+                const blob = new Blob([response], { type: fileType });
+                const url = window.URL.createObjectURL(blob);
+
+                window.open(url, '_blank');
+                setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                
+                toast.dismiss(toastId);
+            } catch (error) {
+                toast.dismiss(toastId);
+                toast.error("Không thể xem trước file này.");
+            }
+            return;
+        }
+
+        // 4. Các file còn lại -> Tải xuống
+        try {
+            const toastId = toast.loading("Đang chuẩn bị tải xuống...");
+            const response = await fileService.downloadFile(item.id);
+            
+            const url = window.URL.createObjectURL(new Blob([response]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', item.name);
+            document.body.appendChild(link);
+            link.click();
+            
+            link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            
+            toast.dismiss(toastId);
+        } catch (error) {
+            toast.dismiss();
+            toast.error("Lỗi khi tải file.");
         }
     };
 
@@ -152,24 +219,48 @@ const ResultItem = ({ item, onClick }) => {
  */
 const FileIcon = ({ type, extension }) => {
     const ext = extension?.toLowerCase() || '';
+    const iconClass = "text-xl flex-shrink-0"; // Class chung
 
+    // 1. Folder
     if (type === 'FOLDER') {
-        return <FaFolder className="text-xl text-yellow-500 flex-shrink-0" />;
+        return <FaFolder className={`${iconClass} text-yellow-500`} />;
     }
 
+    // 2. Office
     if (ext === 'pdf') {
-        return <FaFilePdf className="text-xl text-red-500 flex-shrink-0" />;
+        return <FaFilePdf className={`${iconClass} text-red-500`} />;
     }
-
     if (['doc', 'docx'].includes(ext)) {
-        return <FaFileWord className="text-xl text-blue-500 flex-shrink-0" />;
+        return <FaFileWord className={`${iconClass} text-blue-600`} />;
+    }
+    if (['xls', 'xlsx', 'csv'].includes(ext)) {
+        return <FaFileExcel className={`${iconClass} text-green-600`} />;
+    }
+    if (['ppt', 'pptx'].includes(ext)) {
+        return <FaFilePowerpoint className={`${iconClass} text-orange-500`} />;
     }
 
-    if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
-        return <FaFileImage className="text-xl text-purple-500 flex-shrink-0" />;
+    // 3. Media
+    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
+        return <FaFileImage className={`${iconClass} text-purple-500`} />;
+    }
+    if (['mp4', 'mkv', 'avi', 'mov'].includes(ext)) {
+        return <FaFileVideo className={`${iconClass} text-pink-500`} />;
+    }
+    if (['mp3', 'wav', 'ogg'].includes(ext)) {
+        return <FaFileAudio className={`${iconClass} text-yellow-500`} />;
     }
 
-    return <FaFileAlt className="text-xl text-gray-400 flex-shrink-0" />;
+    // 4. Other
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+        return <FaFileArchive className={`${iconClass} text-gray-600`} />;
+    }
+    if (['html', 'css', 'js', 'json', 'java', 'py'].includes(ext)) {
+        return <FaFileCode className={`${iconClass} text-gray-700`} />;
+    }
+
+    // Default
+    return <FaFileAlt className={`${iconClass} text-gray-400`} />;
 };
 
 /**

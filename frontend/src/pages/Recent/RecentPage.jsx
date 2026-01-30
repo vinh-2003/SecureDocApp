@@ -142,7 +142,14 @@ const RecentPage = () => {
     // File Click
     const { handleSmartClick, handleDoubleClick: handleDoubleClickBase } = useFileClick({
         onSingleClick: (e, file, index) => selectSingle(file, index),
-        onDoubleClick: (file) => handleNavigate(file),
+        onDoubleClick: (file) => {
+            if (file.type === 'FOLDER') {
+                clearSelection();
+                navigate(`/folders/${file.id}`);
+            } else {
+                fileActions.handleFileClick(file);
+            }
+        },
         onCtrlClick: (e, file, index) => selectWithCtrl(e, file, index),
         onShiftClick: (e, file, index) => selectWithShift(index),
         clickDelay: 250
@@ -159,24 +166,6 @@ const RecentPage = () => {
     const handleDoubleClick = (file) => {
         if (isProcessing(file) || isFailed(file)) return;
         handleDoubleClickBase(file);
-    };
-
-    // Navigation
-    const handleNavigate = (file) => {
-        if (file.type === 'FOLDER') {
-            navigate(`/folders/${file.id}`);
-        } else {
-            const isViewable =
-                file.mimeType === 'application/pdf' ||
-                file.name?.toLowerCase().endsWith('.docx') ||
-                file.name?.toLowerCase().endsWith('.doc');
-
-            if (isViewable) {
-                navigate(`/file/view/${file.id}`);
-            } else {
-                fileActions.handleDownload(file);
-            }
-        }
     };
 
     // Menu Action

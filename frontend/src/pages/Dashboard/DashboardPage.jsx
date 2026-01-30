@@ -202,9 +202,12 @@ const DashboardPage = () => {
     }
 
     // 6. WEBSOCKET
-    useFileWebSocket(user?.userId, (msg) => {
-        setFiles(prev => prev.map(f => f.id === msg.fileId ? { ...f, status: msg.status } : f));
-    });
+    useFileWebSocket(
+        user?.userId, 
+        (msg) => {
+            setFiles(prev => prev.map(f => f.id === msg.fileId ? { ...f, status: msg.status } : f));
+        }
+    );
 
     // 7. RENDER
     return (

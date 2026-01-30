@@ -107,7 +107,7 @@ const ToolbarCenter = ({
         <button
             onClick={onPrevPage}
             disabled={!canGoPrev}
-            className="p-1. 5 hover:bg-gray-600 rounded disabled:opacity-30 transition"
+            className="p-1.5 hover:bg-gray-600 rounded disabled:opacity-30 transition"
             title="Trang trước"
         >
             <FaChevronLeft size={12} />

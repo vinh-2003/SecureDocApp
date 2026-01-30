@@ -60,7 +60,7 @@ const UserAccessCard = ({ user, onRevoke }) => {
  */
 const PageAccessTag = ({ pageIndex, onRevoke }) => {
     return (
-        <div className="group flex items-center gap-1. 5 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-full text-xs font-medium hover:bg-green-100 transition">
+        <div className="group flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-full text-xs font-medium hover:bg-green-100 transition">
             <span>Trang {pageIndex + 1}</span>
             <button
                 onClick={onRevoke}

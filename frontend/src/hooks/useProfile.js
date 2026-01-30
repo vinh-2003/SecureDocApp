@@ -50,9 +50,9 @@ const useProfile = () => {
 
         if (!file) return;
 
-        // Validate file size (max 5MB)
-        if (file.size > 5 * 1024 * 1024) {
-            toast.error('Ảnh quá lớn!  Vui lòng chọn ảnh dưới 5MB.');
+        // Validate file size (max 50MB)
+        if (file.size > 50 * 1024 * 1024) {
+            toast.error('Ảnh quá lớn! Vui lòng chọn ảnh dưới 50MB.');
             e.target.value = '';
             return;
         }

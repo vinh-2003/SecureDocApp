@@ -5,98 +5,142 @@ import fileService from '../services/fileService';
 
 /**
  * Hook quản lý logic cho FileViewerPage
- * 
- * @param {string} fileId - ID của file
+ * Cập nhật: Phân loại file (Document/Video/Unsupported) trước khi load
+ * * @param {string} fileId - ID của file
  * @returns {Object} State và handlers
  */
 const useFileViewer = (fileId) => {
     const navigate = useNavigate();
 
-    // Page state
+    // ==========================================
+    // 1. DATA & VIEW STATE
+    // ==========================================
+    const [fileInfo, setFileInfo] = useState(null);
     const [pages, setPages] = useState([]);
-    const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [loading, setLoading] = useState(true);
+    
+    // LOADING | DOCUMENT | VIDEO | UNSUPPORTED
+    const [viewType, setViewType] = useState('LOADING'); 
 
-    // Zoom state
+    // ==========================================
+    // 2. DOCUMENT UI STATE
+    // ==========================================
+    const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [zoomLevel, setZoomLevel] = useState(80);
-
-    // UI state
     const [showSidebar, setShowSidebar] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
-
-    // Owner state
+    
+    // ==========================================
+    // 3. PERMISSION STATE
+    // ==========================================
     const [isOwner, setIsOwner] = useState(false);
-    const [fileInfo, setFileInfo] = useState(null);
 
-    // Ref để tránh dependency cycle
+    // Ref để tránh dependency cycle trong Event Listener
     const isFullscreenRef = useRef(isFullscreen);
 
     useEffect(() => {
         isFullscreenRef.current = isFullscreen;
     }, [isFullscreen]);
 
-    // Fetch pages
-    const fetchPages = useCallback(async () => {
+    // ==========================================
+    // 4. INITIALIZATION LOGIC
+    // ==========================================
+    
+    // Hàm lấy danh sách trang (Chỉ gọi khi xác định là Document)
+    const fetchPagesData = async () => {
         try {
-            setLoading(true);
             const res = await fileService.getFilePages(fileId);
             if (res.success) {
                 setPages(res.data);
             }
         } catch (error) {
             console.error('Fetch pages error:', error);
-            toast.error('Không thể tải tài liệu.');
-            navigate(-1);
-        } finally {
-            setLoading(false);
+            // Nếu lỗi load pages, chuyển sang view UNSUPPORTED để cho user tải về
+            setViewType('UNSUPPORTED'); 
         }
-    }, [fileId, navigate]);
+    };
 
-    // Check ownership
-    const checkOwnership = useCallback(async () => {
+    // Hàm khởi tạo chính
+    const initViewer = useCallback(async () => {
         try {
+            setLoading(true);
+            
+            // B1: Lấy thông tin chi tiết file trước
+            const detailRes = await fileService.getFileDetails(fileId);
+            if (!detailRes.success) throw new Error("Không thể lấy thông tin file");
+
+            const fileData = detailRes.data;
+            setFileInfo(fileData);
+
+            // B2: Kiểm tra quyền Owner
             const userStr = localStorage.getItem('user');
-            if (!userStr) return;
-
-            const currentUser = JSON.parse(userStr);
-            const res = await fileService.getFileDetails(fileId);
-
-            if (res.success) {
-                setFileInfo(res.data);
-                if (currentUser.userId === res.data.owner?.id) {
+            if (userStr) {
+                const currentUser = JSON.parse(userStr);
+                // So sánh ID user hiện tại với owner của file
+                if (fileData.owner && currentUser.userId === fileData.owner.id) {
                     setIsOwner(true);
                 }
             }
+
+            // B3: Phân loại File dựa trên MimeType hoặc Extension
+            const mime = fileData.mimeType || '';
+            const name = fileData.name?.toLowerCase() || '';
+
+            // CASE A: Document (PDF, Word) -> Cần fetch Pages
+            // Backend convert PDF/Word thành các ảnh trang (Page entity)
+            if (mime === 'application/pdf' || name.endsWith('.docx') || name.endsWith('.doc')) {
+                setViewType('DOCUMENT');
+                await fetchPagesData(); // Gọi hàm lấy trang
+            } 
+            // CASE B: Video (Hỗ trợ play trực tiếp nếu trình duyệt hỗ trợ)
+            else if (mime.startsWith('video/') || name.endsWith('.mp4') || name.endsWith('.webm')) {
+                setViewType('VIDEO');
+            }
+            // CASE C: Image hoặc các file khác (Zip, Exe...) -> Coi là Unsupported trong Viewer này
+            // (Lưu ý: Ảnh có thể xem inline ở tab khác, nhưng nếu vào Viewer này thì hiện nút tải)
+            else {
+                setViewType('UNSUPPORTED');
+            }
+
         } catch (error) {
-            console.error('Check ownership error:', error);
+            console.error('Init viewer error:', error);
+            toast.error('Không thể truy cập tài liệu này.');
+            navigate(-1); 
+        } finally {
+            setLoading(false);
         }
-    }, [fileId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fileId, navigate]);
 
-    // Initial load
+    // Chạy init khi component mount hoặc fileId thay đổi
     useEffect(() => {
-        fetchPages();
-        checkOwnership();
-    }, [fetchPages, checkOwnership]);
+        initViewer();
+    }, [initViewer]);
 
-    // Navigation
+
+    // ==========================================
+    // 5. NAVIGATION & ACTIONS (DOCUMENT MODE)
+    // ==========================================
+
     const goToPage = useCallback((index) => {
         if (index >= 0 && index < pages.length) {
             setCurrentPageIndex(index);
-
             const element = document.getElementById(`thumb-${index}`);
             element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }, [pages.length]);
 
-    const nextPage = useCallback(() => {
-        goToPage(currentPageIndex + 1);
-    }, [currentPageIndex, goToPage]);
+    const nextPage = useCallback(() => goToPage(currentPageIndex + 1), [currentPageIndex, goToPage]);
+    const prevPage = useCallback(() => goToPage(currentPageIndex - 1), [currentPageIndex, goToPage]);
 
-    const prevPage = useCallback(() => {
-        goToPage(currentPageIndex - 1);
-    }, [currentPageIndex, goToPage]);
-
-    // Fullscreen toggle
+    // Zoom
+    const zoomIn = useCallback(() => setZoomLevel(prev => Math.min(200, prev + 10)), []);
+    const zoomOut = useCallback(() => setZoomLevel(prev => Math.max(30, prev - 10)), []);
+    const resetZoom = useCallback(() => setZoomLevel(80), []);
+    
+    // UI Toggles
+    const toggleSidebar = useCallback(() => setShowSidebar(prev => !prev), []);
+    
     const toggleFullscreen = useCallback(() => {
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen();
@@ -107,56 +151,35 @@ const useFileViewer = (fileId) => {
         }
     }, []);
 
-    // Keyboard navigation
+    // Fullscreen listener
     useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') nextPage();
-            if (e.key === 'ArrowLeft') prevPage();
-            if (e.key === 'Escape' && isFullscreenRef.current) {
-                // Fullscreen will be handled by browser
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [nextPage, prevPage]);
-
-    // Listen for fullscreen changes
-    useEffect(() => {
-        const handleFullscreenChange = () => {
-            setIsFullscreen(!!document.fullscreenElement);
-        };
-
+        const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, []);
 
-    // Zoom
-    const zoomIn = useCallback(() => {
-        setZoomLevel(prev => Math.min(200, prev + 10));
-    }, []);
+    // Keyboard navigation (Chỉ active khi là Document)
+    useEffect(() => {
+        if (viewType !== 'DOCUMENT') return;
 
-    const zoomOut = useCallback(() => {
-        setZoomLevel(prev => Math.max(30, prev - 10));
-    }, []);
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') nextPage();
+            if (e.key === 'ArrowLeft') prevPage();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [nextPage, prevPage, viewType]);
 
-    const resetZoom = useCallback(() => {
-        setZoomLevel(80);
-    }, []);
+    // ==========================================
+    // 6. BUSINESS ACTIONS
+    // ==========================================
 
-    // Toggle sidebar
-    const toggleSidebar = useCallback(() => {
-        setShowSidebar(prev => !prev);
-    }, []);
-
-    // Toggle page lock (chỉ owner mới dùng được)
+    // Toggle Page Lock (Owner only)
     const togglePageLock = useCallback(async () => {
-        // Kiểm tra quyền owner
         if (!isOwner) {
             toast.error('Bạn không có quyền thực hiện hành động này.');
             return;
         }
-
         const currentPage = pages[currentPageIndex];
         if (!currentPage) return;
 
@@ -165,9 +188,7 @@ const useFileViewer = (fileId) => {
             if (res.success) {
                 const newLockStatus = res.data;
                 setPages(prev => prev.map((p, idx) =>
-                    idx === currentPageIndex
-                        ? { ...p, locked: newLockStatus, isLocked: newLockStatus }
-                        : p
+                    idx === currentPageIndex ? { ...p, locked: newLockStatus, isLocked: newLockStatus } : p
                 ));
                 toast.success(newLockStatus ? 'Đã khóa trang.' : 'Đã mở khóa.');
             }
@@ -176,21 +197,23 @@ const useFileViewer = (fileId) => {
         }
     }, [pages, currentPageIndex, isOwner]);
 
-    // Download file
+    // Download File (Dùng chung cho cả Document, Video, Unsupported)
     const downloadFile = useCallback(async () => {
         const toastId = toast.loading('Đang chuẩn bị tải file...');
-
         try {
             const fileName = fileInfo?.name || 'downloaded_file';
+            // Gọi API download từ service
             const response = await fileService.downloadFile(fileId);
-
+            
+            // Tạo link tải ảo
             const url = window.URL.createObjectURL(new Blob([response]));
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', fileName);
             document.body.appendChild(link);
             link.click();
-
+            
+            // Cleanup
             link.parentNode.removeChild(link);
             window.URL.revokeObjectURL(url);
 
@@ -198,62 +221,65 @@ const useFileViewer = (fileId) => {
             toast.success('Đã tải xuống thành công!');
         } catch (error) {
             toast.dismiss(toastId);
-
-            let message = 'Lỗi khi tải file. ';
-
+            let message = 'Lỗi khi tải file.';
+            
+            // Xử lý lỗi Blob hoặc JSON error message
             if (error.response?.data instanceof Blob) {
                 try {
                     const text = await error.response.data.text();
                     const json = JSON.parse(text);
                     if (json.message) message = json.message;
-                } catch (parseError) {
-                    console.error('Parse error:', parseError);
-                }
+                } catch (e) { console.error(e); }
             } else if (error.response?.data?.message) {
                 message = error.response.data.message;
             }
-
             toast.error(message);
         }
     }, [fileId, fileInfo]);
 
-    // Current page
-    const currentPage = pages[currentPageIndex] || null;
-
+    // ==========================================
+    // 7. RETURN
+    // ==========================================
+    
     return {
-        // State
+        // Data & Status
+        fileInfo,
+        viewType, // Quan trọng: Component sẽ dựa vào đây để render
+        loading,
+        isOwner,
+        
+        // Document Data
         pages,
         currentPageIndex,
-        currentPage,
-        loading,
-        zoomLevel,
-        showSidebar,
-        isFullscreen,
-        isOwner,
-        fileInfo,
-
-        // Computed
+        currentPage: pages[currentPageIndex] || null,
         totalPages: pages.length,
+        
+        // Navigation Logic
         canGoNext: currentPageIndex < pages.length - 1,
         canGoPrev: currentPageIndex > 0,
-
-        // Navigation
         goToPage,
         nextPage,
         prevPage,
 
-        // Zoom
+        // Zoom Logic
+        zoomLevel,
         zoomIn,
         zoomOut,
         resetZoom,
         setZoomLevel,
 
-        // Actions
+        // UI Actions
+        showSidebar,
         toggleSidebar,
+        isFullscreen,
         toggleFullscreen,
+        
+        // Business Actions
         togglePageLock,
         downloadFile,
-        refetch: fetchPages
+        
+        // Helper
+        refetch: initViewer
     };
 };
 

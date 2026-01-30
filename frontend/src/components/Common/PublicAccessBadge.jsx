@@ -28,7 +28,7 @@ const PublicAccessBadge = ({ publicAccess, className = '' }) => {
         <div className={`flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-100 ${className}`}>
             <div className="flex items-center gap-2">
                 {isPrivate ? (
-                    <div className="p-1. 5 bg-gray-200 rounded-full text-gray-600">
+                    <div className="p-1.5 bg-gray-200 rounded-full text-gray-600">
                         <FaLock size={12} />
                     </div>
                 ) : (

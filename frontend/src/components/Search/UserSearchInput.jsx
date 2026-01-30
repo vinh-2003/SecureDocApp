@@ -36,7 +36,7 @@ const UserSearchInput = ({
 
                 {/* Loading Spinner */}
                 {isLoading && (
-                    <div className="absolute right-3 top-2. 5 text-gray-400">
+                    <div className="absolute right-3 top-2.5 text-gray-400">
                         <FaSpinner className="animate-spin" />
                     </div>
                 )}

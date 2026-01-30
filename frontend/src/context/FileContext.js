@@ -45,8 +45,8 @@ export const FileProvider = ({ children }) => {
     if (!files || files.length === 0) return false;
 
     // 2. CẤU HÌNH GIỚI HẠN DUNG LƯỢNG
-    const MAX_FILE_SIZE = 10 * 1024 * 1024;   // 10MB (Cho từng file)
-    const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB (Cho tổng cả lần gửi)
+    const MAX_FILE_SIZE = 100 * 1024 * 1024;   // 100MB (Cho từng file)
+    const MAX_TOTAL_SIZE = 1024 * 1024 * 1024; // 1GB (Cho tổng cả lần gửi)
 
     let totalSize = 0;
 
@@ -54,7 +54,7 @@ export const FileProvider = ({ children }) => {
     for (let i = 0; i < files.length; i++) {
       // Check từng file
       if (files[i].size > MAX_FILE_SIZE) {
-        toast.error(`File "${files[i].name}" quá lớn! Vui lòng chọn file dưới 10MB.`);
+        toast.error(`File "${files[i].name}" quá lớn! Vui lòng chọn file dưới 100MB.`);
         return false; // Dừng ngay lập tức
       }
       totalSize += files[i].size;
@@ -62,7 +62,7 @@ export const FileProvider = ({ children }) => {
 
     // Check tổng dung lượng
     if (totalSize > MAX_TOTAL_SIZE) {
-      toast.error(`Tổng dung lượng các file (${(totalSize / 1024 / 1024).toFixed(2)}MB) vượt quá giới hạn cho phép là 100MB.`);
+      toast.error(`Tổng dung lượng các file (${(totalSize / 1024 / 1024).toFixed(2)}MB) vượt quá giới hạn cho phép là 1GB.`);
       return false; // Dừng ngay lập tức
     }
 
@@ -164,8 +164,8 @@ export const FileProvider = ({ children }) => {
     if (!files || files.length === 0) return false;
 
     // 2. CẤU HÌNH GIỚI HẠN (Dùng chung cấu hình)
-    const MAX_FILE_SIZE = 10 * 1024 * 1024;
-    const MAX_TOTAL_SIZE = 100 * 1024 * 1024;
+    const MAX_FILE_SIZE = 100 * 1024 * 1024;
+    const MAX_TOTAL_SIZE = 1024 * 1024 * 1024;
 
     let totalSize = 0;
 
@@ -174,14 +174,14 @@ export const FileProvider = ({ children }) => {
       // webkitRelativePath là đường dẫn file trong thư mục (VD: TaiLieu/HinhAnh/a.png)
       // Nếu file quá lớn thì chặn
       if (files[i].size > MAX_FILE_SIZE) {
-        toast.error(`File "${files[i].name}" trong thư mục quá lớn! (>10MB)`);
+        toast.error(`File "${files[i].name}" trong thư mục quá lớn! (>100MB)`);
         return false;
       }
       totalSize += files[i].size;
     }
 
     if (totalSize > MAX_TOTAL_SIZE) {
-      toast.error(`Tổng dung lượng thư mục (${(totalSize / 1024 / 1024).toFixed(2)}MB) vượt quá 100MB.`);
+      toast.error(`Tổng dung lượng thư mục (${(totalSize / 1024 / 1024).toFixed(2)}MB) vượt quá 1GB.`);
       return false;
     }
 

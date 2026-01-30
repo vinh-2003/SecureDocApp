@@ -192,6 +192,18 @@ const downloadFile = (id) => {
   });
 };
 
+/**
+ * Xem trước file (lấy Blob để hiển thị trên trình duyệt)
+ * @param {string} id - ID file
+ * @returns {Promise<Blob>} Blob data
+ */
+const previewFile = (id) => {
+  return axiosClient.get(`/files/download/${id}`, {
+    params: { inline: true }, // Truyền tham số inline=true
+    responseType: 'blob'
+  });
+};
+
 // =============================================================================
 // 4. NAVIGATION & SEARCH
 // =============================================================================
@@ -238,6 +250,36 @@ const getAllUserFolders = () => {
  */
 const searchFiles = (params) => {
   return axiosClient.get('/search', { params });
+};
+
+/**
+ * [MỚI] Tìm kiếm ngữ nghĩa (AI Semantic Search)
+ * API: GET /api/search/semantic
+ * @param {string} query - Câu truy vấn mô tả (VD: "hợp đồng mua bán năm ngoái")
+ * @param {number} limit - Số lượng kết quả tối đa
+ */
+const searchBySemantic = (query, limit = 20) => {
+  return axiosClient.get('/search/semantic', {
+    params: { query, limit }
+  });
+};
+
+/**
+ * [MỚI] Tìm kiếm bằng hình ảnh (AI Image Search)
+ * API: POST /api/search/image
+ * @param {File} file - File ảnh upload
+ * @param {number} limit - Số lượng kết quả tối đa
+ */
+const searchByImage = (file, limit = 20) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('limit', limit);
+
+  return axiosClient.post('/search/image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  });
 };
 
 // =============================================================================
@@ -464,12 +506,15 @@ const fileService = {
   uploadBatch,
   uploadFolder,
   downloadFile,
+  previewFile,
 
   // Navigation & Search
   getBreadcrumbs,
   getFolderInfo,
   getAllUserFolders,
   searchFiles,
+  searchBySemantic,
+  searchByImage,
 
   // Sharing & Permissions
   shareFile,

@@ -39,6 +39,7 @@ const IncomingRequestPage = () => {
                         ...req,
                         // Data File
                         fileName: fileData?.name || 'Tài liệu không xác định',
+                        mimeType: fileData?.mimeType || '',
 
                         // Data User (Map từ UserInfoResponse)
                         requesterName: userData?.fullName || userData?.username || req.requesterId, // Ưu tiên FullName -> Username -> ID
@@ -62,6 +63,72 @@ const IncomingRequestPage = () => {
     useEffect(() => {
         fetchRequests();
     }, []);
+
+    const handleFileClick = async (req) => {
+        const mime = req.mimeType || '';
+        const name = req.fileName.toLowerCase();
+        const fileId = req.fileId;
+
+        // 1. PDF & Word -> Mở Viewer của ứng dụng
+        const isInternalViewable =
+            mime === 'application/pdf' ||
+            name.endsWith('.docx') ||
+            name.endsWith('.doc');
+
+        if (isInternalViewable) {
+            navigate(`/file/view/${fileId}`);
+            return;
+        }
+
+        // 2. Ảnh, Video, Text -> Mở tab mới xem nhanh (Inline Preview)
+        const isBrowserPreviewable = [
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/webm',
+            'text/plain'
+        ].includes(mime);
+
+        if (isBrowserPreviewable) {
+            const toastId = toast.loading(`Đang mở: ${req.fileName}...`);
+            try {
+                const response = await fileService.previewFile(fileId);
+
+                const fileType = response.type || mime;
+                const blob = new Blob([response], { type: fileType });
+                const url = window.URL.createObjectURL(blob);
+
+                window.open(url, '_blank');
+
+                // Cleanup memory
+                setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                toast.dismiss(toastId);
+            } catch (error) {
+                toast.dismiss(toastId);
+                toast.error("Không thể xem trước file này.");
+            }
+            return;
+        }
+
+        // 3. Còn lại -> Tải xuống
+        try {
+            const toastId = toast.loading("Đang chuẩn bị tải xuống...");
+            const response = await fileService.downloadFile(fileId);
+
+            const url = window.URL.createObjectURL(new Blob([response]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', req.fileName);
+            document.body.appendChild(link);
+            link.click();
+
+            link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            toast.dismiss(toastId);
+        } catch (error) {
+            toast.dismiss();
+            toast.error("Lỗi khi tải file.");
+        }
+    };
 
     const handleProcess = async (requestId, isApproved) => {
         try {
@@ -153,7 +220,7 @@ const IncomingRequestPage = () => {
                                                 <div>
                                                     <p
                                                         className="font-medium text-blue-600 hover:underline cursor-pointer text-sm"
-                                                        onClick={() => navigate(`/file/view/${req.fileId}`)}
+                                                        onClick={() => handleFileClick(req)}
                                                     >
                                                         {req.fileName}
                                                     </p>

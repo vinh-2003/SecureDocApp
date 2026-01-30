@@ -207,7 +207,7 @@ const FileListView = ({
                                         {onRetry && (
                                             <button
                                                 onClick={(e) => onRetry(e, file)}
-                                                className="text-xs flex items-center gap-1 text-gray-500 hover:text-blue-600 bg-gray-100 px-2 py-0. 5 rounded border transition"
+                                                className="text-xs flex items-center gap-1 text-gray-500 hover:text-blue-600 bg-gray-100 px-2 py-0.5 rounded border transition"
                                                 title="Thử xử lý lại"
                                             >
                                                 <FaRedo size={10} /> Thử lại

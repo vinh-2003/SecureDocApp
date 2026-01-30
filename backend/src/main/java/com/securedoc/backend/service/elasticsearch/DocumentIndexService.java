@@ -239,6 +239,39 @@ public class DocumentIndexService {
         }
     }
 
+    public void updateContentAndVectors(String id, String content, float[] imageVector) {
+        documentIndexRepository.findById(id).ifPresent(doc -> {
+            boolean changed = false;
+
+            // 1. Cập nhật Content (Text)
+            // Lưu ý: Whisper transcript hoặc OCR text đều được truyền vào đây để search full-text
+            if (content != null) {
+                doc.setContent(content);
+                changed = true;
+            }
+
+            // 2. Cập nhật Image Vector (Chỉ dành cho ảnh)
+            // Kiểm tra != null và độ dài > 0 để tránh lưu mảng rỗng
+            if (imageVector != null && imageVector.length > 0) {
+                doc.setImageVector(imageVector);
+                changed = true;
+            }
+
+            // 3. Luôn cập nhật trạng thái thành AVAILABLE khi xử lý xong
+            // Để đảm bảo file tìm thấy được trên giao diện
+            if (!"AVAILABLE".equals(doc.getStatus())) {
+                doc.setStatus("AVAILABLE");
+                changed = true;
+            }
+
+            if (changed) {
+                // Cập nhật thời gian sửa đổi (Optional: dùng thư viện Time của bạn)
+                doc.setUpdatedAt(java.time.LocalDateTime.now().toString());
+                documentIndexRepository.save(doc);
+            }
+        });
+    }
+
     /**
      * Tính toán allowedUsers từ hệ thống phân cấp (bao gồm "Thái thượng hoàng")
      */

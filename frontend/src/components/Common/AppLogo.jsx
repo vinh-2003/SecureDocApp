@@ -28,7 +28,7 @@ const AppLogo = ({
             icon: 16,
             iconWrapper: 'p-1.5',
             text: 'text-lg',
-            gap: 'gap-1. 5'
+            gap: 'gap-1.5'
         },
         md: {
             icon: 20,

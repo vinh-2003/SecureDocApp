@@ -1,5 +1,6 @@
 import React from 'react';
 import { FaArrowRight, FaUserPlus, FaUserMinus } from 'react-icons/fa';
+import { formatBytes } from '../../utils/format';
 
 /**
  * Component hiển thị chi tiết bổ sung cho activity
@@ -79,14 +80,9 @@ const ActivityDetails = ({ actionType, details }) => {
 
             case 'FILE_UPLOADED':
                 if (details.size) {
-                    const formatSize = (bytes) => {
-                        if (bytes < 1024) return bytes + ' B';
-                        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-                        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-                    };
                     return (
                         <div className="text-xs text-gray-500 mt-1">
-                            Kích thước: {formatSize(details.size)}
+                            Kích thước: {formatBytes(details.size)}
                         </div>
                     );
                 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useContext } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { FaArrowLeft } from 'react-icons/fa';
+import { FaArrowLeft, FaMagic, FaImage, FaTimes } from 'react-icons/fa';
 
 // Services
 import fileService from '../../services/fileService';
@@ -47,6 +47,7 @@ const SearchPage = () => {
     // 1. ROUTER & CONTEXT
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const { user } = useContext(AuthContext);
     const currentUserId = user?.userId;
@@ -56,6 +57,10 @@ const SearchPage = () => {
     const [loading, setLoading] = useState(false);
     const [viewMode, setViewMode] = useState('list');
     const [visibleColumns, setVisibleColumns] = useState(SEARCH_VISIBLE_COLUMNS);
+
+    // [MỚI] State cho AI Search
+    const [isSemantic, setIsSemantic] = useState(false); // Toggle chế độ Semantic
+    const [imageSearchState, setImageSearchState] = useState(null); // Lưu trạng thái tìm ảnh
 
     // State lưu tên đã resolve từ ID
     const [resolvedNames, setResolvedNames] = useState({
@@ -68,6 +73,59 @@ const SearchPage = () => {
         Object.fromEntries([...searchParams]),
         [searchParams]
     );
+
+    // Fetch search results
+    async function fetchSearchResults() {
+        setLoading(true);
+        try {
+            // CASE A: Tìm kiếm bằng hình ảnh (Ưu tiên số 1)
+            // Nếu có dữ liệu từ location.state (do Header gửi sang)
+            if (location.state?.searchType === 'IMAGE') {
+                setResults(location.state.imageResults);
+                setImageSearchState({
+                    imageName: location.state.imageName,
+                    imagePreview: location.state.imagePreview
+                });
+                setLoading(false);
+                return; // Dừng, không gọi API text nữa
+            } else {
+                setImageSearchState(null); // Reset nếu không phải image search
+            }
+
+            // CASE B: Tìm kiếm Text (Keyword hoặc Semantic)
+            const { ownerDisplayName, locationDisplayName, ...cleanParams } = currentParams;
+
+            let res;
+
+            // Nếu bật chế độ Semantic VÀ có từ khóa
+            if (isSemantic && cleanParams.keyword) {
+                // Gọi API Semantic
+                res = await fileService.searchBySemantic(cleanParams.keyword);
+            } else {
+                // Gọi API Thường (Keyword + Filters)
+                const apiParams = { ...cleanParams, page: 0, size: 50 };
+                res = await fileService.searchFiles(apiParams);
+            }
+
+            if (res.success) {
+                setResults(res.data);
+            }
+
+            // Resolve tên người dùng/folder (cho bộ lọc)
+            await resolveFilterNames(cleanParams);
+
+        } catch (error) {
+            console.error("Lỗi tìm kiếm:", error);
+            toast.error("Không thể tìm kiếm.");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    useEffect(() => {
+        fetchSearchResults();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams, location.state, isSemantic]);
 
     // 3. CUSTOM HOOKS
 
@@ -132,7 +190,14 @@ const SearchPage = () => {
     // File Click
     const { handleSmartClick, handleDoubleClick: handleDoubleClickBase } = useFileClick({
         onSingleClick: (e, file, index) => selectSingle(file, index),
-        onDoubleClick: (file) => handleNavigate(file),
+        onDoubleClick: (file) => {
+            if (file.type === 'FOLDER') {
+                clearSelection();
+                navigate(`/folders/${file.id}`);
+            } else {
+                fileActions.handleFileClick(file);
+            }
+        },
         onCtrlClick: (e, file, index) => selectWithCtrl(e, file, index),
         onShiftClick: (e, file, index) => selectWithShift(index),
         clickDelay: 250
@@ -149,24 +214,6 @@ const SearchPage = () => {
     const handleDoubleClick = (file) => {
         if (isProcessing(file) || isFailed(file)) return;
         handleDoubleClickBase(file);
-    };
-
-    // Navigation
-    const handleNavigate = (file) => {
-        if (file.type === 'FOLDER') {
-            navigate(`/folders/${file.id}`);
-        } else {
-            const isViewable =
-                file.mimeType === 'application/pdf' ||
-                file.name?.toLowerCase().endsWith('.docx') ||
-                file.name?.toLowerCase().endsWith('.doc');
-
-            if (isViewable) {
-                navigate(`/file/view/${file.id}`);
-            } else {
-                fileActions.handleDownload(file);
-            }
-        }
     };
 
     // Menu Action - Sử dụng fileActions
@@ -305,61 +352,112 @@ const SearchPage = () => {
         }
     };
 
-    // Fetch search results
-    async function fetchSearchResults() {
-        setLoading(true);
-        try {
-            const { ownerDisplayName, locationDisplayName, ...cleanParams } = currentParams;
-            const apiParams = { ...cleanParams, page: 0, size: 50 };
-
-            const res = await fileService.searchFiles(apiParams);
-            if (res.success) {
-                setResults(res.data);
-            }
-
-            await resolveFilterNames(cleanParams);
-        } catch (error) {
-            console.error("Lỗi tìm kiếm:", error);
-            toast.error("Không thể tìm kiếm.");
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    useEffect(() => {
-        fetchSearchResults();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams]);
-
     // 7. RENDER
     return (
         <div className="animate-fade-in pb-10 min-h-[80vh]">
 
-            {/* HEADER */}
-            <div className="flex items-center gap-4 mb-6">
-                <button
-                    onClick={() => navigate(-1)}
-                    className="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition"
-                    title="Quay lại"
-                >
-                    <FaArrowLeft />
-                </button>
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-800">Kết quả tìm kiếm</h1>
-                    {currentParams.keyword && (
-                        <p className="text-sm text-gray-500">
-                            Từ khóa: <span className="font-bold">"{currentParams.keyword}"</span>
-                        </p>
-                    )}
+            {/* HEADER AREA */}
+            <div className="flex flex-col gap-4 mb-6">
+                {/* Row 1: Back + Title */}
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition"
+                        title="Quay lại"
+                    >
+                        <FaArrowLeft />
+                    </button>
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            {imageSearchState ? (
+                                <>
+                                    <FaImage className="text-purple-600" />
+                                    Tìm kiếm bằng hình ảnh
+                                </>
+                            ) : (
+                                "Kết quả tìm kiếm"
+                            )}
+                        </h1>
+                        
+                        {/* Subtitle logic */}
+                        {imageSearchState ? (
+                            <p className="text-sm text-gray-500 mt-1">
+                                Kết quả tương đồng với: <span className="font-semibold text-gray-700">{imageSearchState.imageName}</span>
+                            </p>
+                        ) : currentParams.keyword && (
+                            <p className="text-sm text-gray-500">
+                                {isSemantic ? "Tìm kiếm ngữ nghĩa (AI) cho: " : "Từ khóa: "} 
+                                <span className="font-bold">"{currentParams.keyword}"</span>
+                            </p>
+                        )}
+                    </div>
                 </div>
+
+                {/* [MỚI] AI TOGGLE BAR (Chỉ hiện khi tìm Text) */}
+                {!imageSearchState && currentParams.keyword && (
+                    <div className="flex items-center gap-3 bg-indigo-50 p-3 rounded-lg border border-indigo-100 self-start">
+                        <div className="flex items-center gap-2 text-indigo-700 font-medium text-sm">
+                            <FaMagic />
+                            <span>Chế độ tìm kiếm:</span>
+                        </div>
+                        
+                        <div className="flex bg-white rounded-md p-1 border border-indigo-100 shadow-sm">
+                            <button
+                                onClick={() => setIsSemantic(false)}
+                                className={`px-3 py-1 text-xs font-semibold rounded transition ${
+                                    !isSemantic 
+                                    ? 'bg-indigo-600 text-white shadow-sm' 
+                                    : 'text-gray-500 hover:bg-gray-50'
+                                }`}
+                            >
+                                Chính xác
+                            </button>
+                            <button
+                                onClick={() => setIsSemantic(true)}
+                                className={`px-3 py-1 text-xs font-semibold rounded transition flex items-center gap-1 ${
+                                    isSemantic 
+                                    ? 'bg-purple-600 text-white shadow-sm' 
+                                    : 'text-gray-500 hover:bg-gray-50'
+                                }`}
+                            >
+                                AI (Thông minh)
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* [MỚI] IMAGE SEARCH PREVIEW BAR */}
+                {imageSearchState && imageSearchState.imagePreview && (
+                    <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border border-gray-200 self-start">
+                        <img 
+                            src={imageSearchState.imagePreview} 
+                            alt="Preview" 
+                            className="h-12 w-12 object-cover rounded border border-gray-300" 
+                        />
+                        <div className="text-sm">
+                            <p className="font-medium text-gray-700">Ảnh đã tải lên</p>
+                            <button 
+                                onClick={() => {
+                                    // Xóa state image và quay lại search thường
+                                    navigate('/search', { replace: true, state: {} });
+                                }}
+                                className="text-xs text-red-500 hover:underline flex items-center gap-1 mt-0.5"
+                            >
+                                <FaTimes /> Hủy tìm ảnh
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* FILTER CHIPS */}
-            <FilterChips
-                filters={filters}
-                onRemove={handleRemoveFilter}
-                onClearAll={handleClearAllFilters}
-            />
+            {/* FILTER CHIPS (Chỉ hiện khi không phải Image Search) */}
+            {!imageSearchState && (
+                <FilterChips
+                    filters={filters}
+                    onRemove={handleRemoveFilter}
+                    onClearAll={handleClearAllFilters}
+                />
+            )}
 
             {/* TOOLBAR */}
             <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">

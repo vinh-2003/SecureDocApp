@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaSearch, FaSlidersH } from 'react-icons/fa';
+import { FaSearch, FaSlidersH, FaCamera } from 'react-icons/fa';
 
 /**
  * Search input bar component
@@ -10,6 +10,7 @@ const SearchBar = ({
     onKeyDown,
     onFocus,
     onAdvancedClick,
+    onImageClick,
     placeholder = "Tìm kiếm tài liệu, thư mục..."
 }) => {
     return (
@@ -27,8 +28,17 @@ const SearchBar = ({
             />
 
             <button
+                onClick={onImageClick}
+                className="ml-2 p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-purple-600 transition flex-shrink-0"
+                title="Tìm kiếm bằng hình ảnh"
+                type="button"
+            >
+                <FaCamera />
+            </button>
+
+            <button
                 onClick={onAdvancedClick}
-                className="ml-2 p-1. 5 rounded hover:bg-gray-200 text-gray-500 hover:text-blue-600 transition flex-shrink-0"
+                className="ml-2 p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-blue-600 transition flex-shrink-0"
                 title="Tìm kiếm nâng cao"
                 type="button"
             >

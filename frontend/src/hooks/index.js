@@ -21,6 +21,7 @@ export { default as useUploadPermissions } from './useUploadPermissions';
 export { default as useUserSearch } from './useUserSearch';
 export { default as useFolderList } from './useFolderList';
 export { default as useSearchPreview } from './useSearchPreview';
+export { default as useImageSearch } from './useImageSearch';
 
 // Profile
 export { default as useProfile } from './useProfile';

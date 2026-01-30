@@ -161,19 +161,19 @@ const ActivityPage = () => {
                 {/* Activity List */}
                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
                     <ActivityList
-                    activities={viewMode === 'recent' ? activities.slice(0, 30) : activities}
-                    loading={loading}
-                    error={error}
-                    hasMore={false}
-                    onLoadMore={undefined}
-                    currentUserId={user?.id}
-                    showTarget={true}
-                    emptyMessage={
-                        viewMode === 'my'
-                            ? 'Bạn chưa thực hiện hoạt động nào'
-                            : 'Chưa có hoạt động nào được ghi nhận'
-                    }
-                />
+                        activities={viewMode === 'recent' ? activities.slice(0, 30) : activities}
+                        loading={loading}
+                        error={error}
+                        hasMore={false}
+                        onLoadMore={undefined}
+                        currentUserId={user?.id}
+                        showTarget={true}
+                        emptyMessage={
+                            viewMode === 'my'
+                                ? 'Bạn chưa thực hiện hoạt động nào'
+                                : 'Chưa có hoạt động nào được ghi nhận'
+                        }
+                    />
                 </div>
 
                 {/* Pagination cho "my" */}

@@ -5,6 +5,17 @@ spring:
   application:
     name: secure-doc-backend
 
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            # Thời gian chờ kết nối (5 giây)
+            connectTimeout: 5000
+            # Thời gian chờ xử lý (10 phút) -> Fix lỗi Whisper Timeout
+            readTimeout: 600000
+            loggerLevel: basic
+
   # --- EMAIL CONFIGURATION (Gmail Example) ---
   mail:
     host: smtp.gmail.com
@@ -38,8 +49,8 @@ spring:
   # --- 3. FILE UPLOAD LIMITS ---
   servlet:
     multipart:
-      max-file-size: 10MB        # Kích thước tối đa 1 file
-      max-request-size: 100MB     # Kích thước tối đa cả request
+      max-file-size: 100MB        # Kích thước tối đa 1 file
+      max-request-size: 1GB     # Kích thước tối đa cả request
 
   # --- 4. JACKSON (JSON FORMAT) ---
   jackson:
@@ -75,3 +86,7 @@ app:
 
   google:
     client-id: 352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com
+
+  tika-url: http://localhost:9998
+  clip-url: http://localhost:51000
+  whisper-url: http://localhost:8000

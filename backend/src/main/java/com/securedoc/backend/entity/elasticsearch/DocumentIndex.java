@@ -25,6 +25,9 @@ public class DocumentIndex {
     @Field(type = FieldType.Text, analyzer = "vi_analyzer", searchAnalyzer = "vi_analyzer")
     private String content;
 
+    @Field(type = FieldType.Dense_Vector, dims = 512, index = true, similarity = "cosine")
+    private float[] imageVector;
+
     @Field(type = FieldType.Keyword)
     private String type; // FILE/FOLDER
 

@@ -1,0 +1,9 @@
+FROM apache/tika:latest
+
+USER root
+
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr-vie \
+    && rm -rf /var/lib/apt/lists/*
+
+USER 35002

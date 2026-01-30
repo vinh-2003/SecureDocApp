@@ -22,7 +22,6 @@ import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.SecretKey;
 
-import org.apache.tika.Tika;
 import org.bson.types.ObjectId;
 import org.modelmapper.ModelMapper;
 import org.springframework.core.io.InputStreamResource;
@@ -111,7 +110,6 @@ public class FileStorageService {
     private final ModelMapper modelMapper;
     private final GridFsTemplate gridFsTemplate;
     private final CryptoUtils cryptoUtils;
-    private final Tika tika;
 
     /**
      * 1. HÀM DÙNG CHUNG: KIỂM TRA QUYỀN & LẤY THÔNG TIN THỪA KẾ - Check tồn tại
@@ -239,33 +237,41 @@ public class FileStorageService {
         return finalName;
     }
 
-    /**
-     * [CORE METHOD] HÀM LƯU TRỮ DÙNG CHUNG Chịu trách nhiệm: Tạo Key -> Lưu
-     * GridFS -> Lưu Metadata -> Index Elastic -> Trigger Async
-     */
+    private FileResponse processFileSave(MultipartFile file, String fileName, FolderContext context, String userId, String description) throws Exception {
+        // 1. Lấy MimeType tạm thời từ Browser (Sẽ được Worker check lại chính xác sau)
+        String initialMimeType = file.getContentType();
+        long size = file.getSize();
+
+        // 2. Mở stream và gọi hàm lưu
+        try (InputStream saveStream = file.getInputStream()) {
+            return internalStoreFile(
+                    saveStream,
+                    fileName,
+                    initialMimeType, // MimeType tạm
+                    size,
+                    context,
+                    userId,
+                    description
+            );
+        }
+    }
+
     private FileResponse internalStoreFile(
-            InputStream inputStream, // Stream dữ liệu (Từ Upload hoặc từ File gốc đã giải mã)
+            InputStream inputStream,
             String fileName,
             String mimeType,
             long size,
-            FolderContext context, // Context quyền hạn
-            String userId, // Chủ sở hữu mới
-            String description,
-            String extractedText // Text đã trích xuất (nếu có)
+            FolderContext context,
+            String userId,
+            String description
     ) throws Exception {
 
-        // 1. Tạo Key mã hóa mới (Mỗi file/bản sao có key riêng biệt -> Bảo mật cao)
+        // 1. Tạo Key mã hóa & Lưu GridFS (Giữ nguyên logic cũ)
         SecretKey fileKey = cryptoUtils.generateSecretKey();
-
-        // 2. Gọi Core Service: Mã hoá & Lưu vào GridFS
-        // (Hàm này trả về ID GridFS và IV)
         StoredFileResult storedResult = coreFileService.storeWithExistingKey(inputStream, fileName, mimeType, fileKey);
 
-        boolean supportPreview = isSupportPreview(mimeType);
-
-        EFileStatus initialStatus = supportPreview ? EFileStatus.PROCESSING : EFileStatus.AVAILABLE;
-
-        // 3. Tạo Metadata (FileNode)
+        // 2. Tạo Metadata (FileNode)
+        // Luôn set là PROCESSING lúc đầu
         FileNode fileNode = FileNode.builder()
                 .name(fileName)
                 .description(description)
@@ -277,7 +283,7 @@ public class FileStorageService {
                 .extension(getExt(fileName))
                 .gridFsId(storedResult.getGridFsId())
                 .ownerId(userId)
-                .status(initialStatus)
+                .status(EFileStatus.PROCESSING) // <--- LUÔN LÀ PROCESSING
                 .isEncrypted(true)
                 .isDeleted(false)
                 .publicAccess(context.getPublicAccess())
@@ -290,66 +296,28 @@ public class FileStorageService {
 
         FileNode savedNode = fileNodeRepository.save(fileNode);
 
-        // 4. Lưu Key (FileKey)
+        // 3. Lưu Key
         FileKey keyEntity = FileKey.builder()
                 .fileNodeId(savedNode.getId())
                 .algorithm("AES")
-                .encryptedKey(cryptoUtils.encryptFileKey(storedResult.getSecretKey())) // Mã hóa key file bằng Master Key
+                .encryptedKey(cryptoUtils.encryptFileKey(storedResult.getSecretKey()))
                 .masterKeyVersion(1)
                 .build();
         FileKey savedKey = fileKeyRepository.save(keyEntity);
 
-        // Update ngược KeyId vào Node
         savedNode.getEncryptionMetadata().setKeyId(savedKey.getId());
         fileNodeRepository.save(savedNode);
 
-        // 5. Lưu ElasticSearch
-        documentIndexService.saveToElasticsearch(savedNode, extractedText);
+        // 4. Lưu ElasticSearch sơ bộ (Chưa có Content)
+        documentIndexService.saveToElasticsearch(savedNode, null);
 
-        // 6. Trigger Async Task (Tách trang / Xử lý hậu kỳ)
-        // TỐI ƯU QUAN TRỌNG: Không truyền byte[] để tránh tràn RAM.
-        // Service Async sẽ tự tải file từ GridFS về để xử lý.
-        if (supportPreview) {
-            // Chỉ truyền Node và Key giải mã (bản chưa encrypt)
-            fileProcessorService.processFilePages(savedNode, fileKey);
-        }
+        // 5. TRIGGER ASYNC WORKER (Chuyền ID và Key gốc để Worker tự xử lý)
+        // Lưu ý: Không truyền byte[] để tiết kiệm RAM main thread
+        fileProcessorService.processFileAsync(savedNode, fileKey);
 
         activityLogService.logFileUploaded(savedNode, userId);
 
         return convertToResponse(savedNode, userId);
-    }
-
-    /**
-     * WRAPPER 1: Xử lý Upload mới (Từ MultipartFile)
-     */
-    private FileResponse processFileSave(MultipartFile file, String fileName, FolderContext context, String userId, String description) throws Exception {
-        // A. Validate & Detect Type
-        String realMimeType;
-        try (InputStream stream = file.getInputStream()) {
-            realMimeType = tika.detect(stream);
-        }
-
-        // B. Trích xuất Text (Optional - Fail safe)
-        String extractedContent = "";
-        try (InputStream stream = file.getInputStream()) {
-            extractedContent = tika.parseToString(stream);
-        } catch (Exception e) {
-            /* Ignore */ }
-
-        // C. Gọi hàm chung
-        // Mở stream mới để truyền vào hàm lưu (Vì stream cũ đã bị Tika đọc hết)
-        try (InputStream saveStream = file.getInputStream()) {
-            return internalStoreFile(
-                    saveStream,
-                    fileName,
-                    realMimeType,
-                    file.getSize(),
-                    context,
-                    userId,
-                    description,
-                    extractedContent
-            );
-        }
     }
 
     // =========================================================================
@@ -560,14 +528,11 @@ public class FileStorageService {
             throw new AppException(AppErrorCode.FILE_ALREADY_PROCESSED);
         }
 
-        // --- [MỚI] BƯỚC QUAN TRỌNG: DỌN DẸP DỮ LIỆU CŨ/LỖI ---
-        // Xóa sạch các FilePage (ảnh rõ/mờ) đã tạo ra trong lần chạy trước
+        // 1. DỌN DẸP DỮ LIỆU CŨ/LỖI
         cleanupFilePages(fileId);
-
-        // (Tùy chọn) Có thể xóa cả các yêu cầu truy cập cũ nếu muốn reset hoàn toàn
         pageAccessRequestRepository.deleteByFileId(fileId);
 
-        // 4. Lấy lại Key giải mã
+        // 2. Lấy lại Key giải mã
         FileNode.EncryptionMetadata encMeta = node.getEncryptionMetadata();
         if (encMeta == null || encMeta.getKeyId() == null) {
             throw new AppException(AppErrorCode.FILE_NOT_ENCRYPTED_OR_MISSING_KEY);
@@ -578,14 +543,15 @@ public class FileStorageService {
 
         SecretKey originalKey = cryptoUtils.decryptFileKey(fileKeyEntity.getEncryptedKey());
 
-        // 5. Cập nhật trạng thái về PROCESSING
+        // 3. Cập nhật trạng thái về PROCESSING
         node.setStatus(EFileStatus.PROCESSING);
+        node.setErrorMessage(null); // Xóa lỗi cũ
         FileNode savedNode = fileNodeRepository.save(node);
 
         documentIndexService.updateElasticsearchStatus(savedNode);
 
-        // 6. Gọi lại Async Task
-        fileProcessorService.processFilePages(node, originalKey);
+        // 4. Gọi Async Task
+        fileProcessorService.processFileAsync(savedNode, originalKey);
     }
 
     /**
@@ -1650,13 +1616,6 @@ public class FileStorageService {
         // Lấy nội dung đã giải mã từ GridFS ra byte array
         byte[] fileBytes = getDecryptedBytes(sourceNode);
 
-        // Trích xuất lại text (Hoặc có thể query lấy text cũ từ ElasticSearch để tiết kiệm CPU)
-        String extractedContent = "";
-        try (InputStream tikaStream = new ByteArrayInputStream(fileBytes)) {
-            extractedContent = tika.parseToString(tikaStream);
-        } catch (Exception e) {
-            /* Ignore */ }
-
         // D. Gọi hàm chung
         try (InputStream saveStream = new ByteArrayInputStream(fileBytes)) {
             FileResponse response = internalStoreFile(
@@ -1666,8 +1625,7 @@ public class FileStorageService {
                     sourceNode.getSize(),
                     context,
                     userId,
-                    sourceNode.getDescription(),
-                    extractedContent
+                    sourceNode.getDescription()
             );
 
             FileNode copiedNode = fileNodeRepository.findByIdAndIsDeletedFalse(response.getId())

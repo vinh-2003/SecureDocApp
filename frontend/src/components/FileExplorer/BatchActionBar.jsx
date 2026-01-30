@@ -18,13 +18,13 @@ const ACTION_CONFIG = {
     [BATCH_ACTIONS.MOVE]: {
         label: 'Di chuyển',
         icon: <FaExchangeAlt className="text-gray-500" />,
-        className: 'bg-white text-gray-700 border-gray-300 hover: bg-gray-100',
+        className: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100',
         permissionKey: 'canMove'
     },
     [BATCH_ACTIONS.DELETE]: {
         label: 'Chuyển vào thùng rác',
         icon: <FaTrash />,
-        className: 'bg-white text-red-600 border-gray-300 hover: bg-red-50',
+        className: 'bg-white text-red-600 border-gray-300 hover:bg-red-50',
         permissionKey: 'canDelete'
     },
     [BATCH_ACTIONS.RESTORE]: {
@@ -115,7 +115,7 @@ const BatchActionBar = ({
                 </span>
                 <button
                     onClick={onClearSelection}
-                    className={`text-xs ${clearClassName} hover: underline`}
+                    className={`text-xs ${clearClassName} hover:underline`}
                 >
                     Bỏ chọn
                 </button>

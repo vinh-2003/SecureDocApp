@@ -1,7 +1,9 @@
 import React, { useCallback } from 'react';
 import {
     FaFolder, FaFileAlt, FaFilePdf, FaFileWord,
-    FaFileImage, FaSpinner, FaExclamationCircle
+    FaFileImage, FaSpinner, FaExclamationCircle,
+    FaFileExcel, FaFilePowerpoint, FaFileVideo,
+    FaFileAudio, FaFileArchive, FaFileCode
 } from 'react-icons/fa';
 
 /**
@@ -17,8 +19,10 @@ const useFileIcon = () => {
      * @returns {JSX.Element} - Icon component
      */
     const getFileIcon = useCallback((file, isLarge = false) => {
-        const { type, mimeType, status } = file;
+        const { type, mimeType, status, name, extension } = file;
         const className = isLarge ? "text-5xl mb-2" : "text-2xl";
+
+        const ext = extension?.toLowerCase() || name?.split('.').pop()?.toLowerCase() || '';
 
         // 1. Nếu đang xử lý -> Trả về Spinner xoay
         if (status === 'PROCESSING') {
@@ -34,16 +38,52 @@ const useFileIcon = () => {
         if (type === 'FOLDER') {
             return <FaFolder className={`text-yellow-500 ${className}`} />;
         }
-        if (mimeType?.includes('pdf')) {
+        // PDF
+        if (mimeType?.includes('pdf') || ext === 'pdf') {
             return <FaFilePdf className={`text-red-500 ${className}`} />;
         }
-        if (mimeType?.includes('word') || mimeType?.includes('document')) {
-            return <FaFileWord className={`text-blue-500 ${className}`} />;
+
+        // Word
+        if (mimeType?.includes('word') || mimeType?.includes('document') || ['doc', 'docx'].includes(ext)) {
+            return <FaFileWord className={`text-blue-600 ${className}`} />;
         }
-        if (mimeType?.includes('image')) {
+
+        // Excel (Mới)
+        if (mimeType?.includes('excel') || mimeType?.includes('spreadsheet') || mimeType?.includes('csv') || ['xls', 'xlsx', 'csv'].includes(ext)) {
+            return <FaFileExcel className={`text-green-600 ${className}`} />;
+        }
+
+        // PowerPoint (Mới)
+        if (mimeType?.includes('presentation') || mimeType?.includes('powerpoint') || ['ppt', 'pptx'].includes(ext)) {
+            return <FaFilePowerpoint className={`text-orange-500 ${className}`} />;
+        }
+
+        // Image
+        if (mimeType?.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
             return <FaFileImage className={`text-purple-500 ${className}`} />;
         }
 
+        // Video (Mới)
+        if (mimeType?.includes('video') || ['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) {
+            return <FaFileVideo className={`text-pink-500 ${className}`} />;
+        }
+
+        // Audio (Mới)
+        if (mimeType?.includes('audio') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
+            return <FaFileAudio className={`text-yellow-500 ${className}`} />;
+        }
+
+        // Archive/Zip (Mới)
+        if (mimeType?.includes('zip') || mimeType?.includes('compressed') || mimeType?.includes('tar') || ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+            return <FaFileArchive className={`text-gray-600 ${className}`} />;
+        }
+
+        // Code/Text (Mới)
+        if (['html', 'css', 'js', 'jsx', 'java', 'py', 'c', 'cpp', 'json', 'xml'].includes(ext)) {
+            return <FaFileCode className={`text-gray-700 ${className}`} />;
+        }
+
+        // Mặc định
         return <FaFileAlt className={`text-gray-400 ${className}`} />;
     }, []);
 

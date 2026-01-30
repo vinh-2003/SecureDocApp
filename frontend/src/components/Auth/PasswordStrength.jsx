@@ -46,11 +46,11 @@ const PasswordStrength = ({ password = '' }) => {
     return (
         <div className="mt-2">
             {/* Strength bars */}
-            <div className="flex gap-1 mb-1. 5">
+            <div className="flex gap-1 mb-1.5">
                 {[1, 2, 3, 4].map((level) => (
                     <div
                         key={level}
-                        className={`h-1. 5 flex-1 rounded-full transition-all duration-300 ${level <= strength.score ? strength.bgColor : 'bg-gray-200'
+                        className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${level <= strength.score ? strength.bgColor : 'bg-gray-200'
                             }`}
                     />
                 ))}

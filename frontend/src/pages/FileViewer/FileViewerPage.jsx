@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FaFileArchive, FaDownload, FaArrowLeft, FaExclamationTriangle } from 'react-icons/fa';
+import { FaFileArchive, FaDownload, FaArrowLeft } from 'react-icons/fa';
 
 // Components
 import { Loading } from '../../components/Common';

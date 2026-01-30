@@ -10,6 +10,7 @@ import MainLayout from '../layouts/MainLayout';
 
 // Routes config
 import { publicRoutes, privateRoutes } from './index';
+import ErrorPage from '../pages/Error/ErrorPage';
 
 /**
  * Loading fallback cho Suspense
@@ -51,8 +52,12 @@ const AppRoutes = () => {
                     </Route>
                 </Route>
 
-                {/* 404 - Có thể thêm sau */}
-                {/* <Route path="*" element={<NotFoundPage />} /> */}
+                {/* Route lỗi cụ thể (nếu muốn redirect tới) */}
+                <Route path="/error/403" element={<ErrorPage status={403} />} />
+                <Route path="/error/500" element={<ErrorPage status={500} />} />
+
+                {/* 404 - Đặt ở cuối cùng */}
+                <Route path="*" element={<ErrorPage status={404} />} />
             </Routes>
         </Suspense>
     );

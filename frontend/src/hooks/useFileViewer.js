@@ -134,7 +134,7 @@ const useFileViewer = (fileId) => {
     const prevPage = useCallback(() => goToPage(currentPageIndex - 1), [currentPageIndex, goToPage]);
 
     // Zoom
-    const zoomIn = useCallback(() => setZoomLevel(prev => Math.min(200, prev + 10)), []);
+    const zoomIn = useCallback(() => setZoomLevel(prev => Math.min(100, prev + 10)), []);
     const zoomOut = useCallback(() => setZoomLevel(prev => Math.max(30, prev - 10)), []);
     const resetZoom = useCallback(() => setZoomLevel(80), []);
     

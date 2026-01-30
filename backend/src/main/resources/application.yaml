@@ -18,10 +18,10 @@ spring:
 
   # --- EMAIL CONFIGURATION (Gmail Example) ---
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: vinh9a72003@gmail.com
-    password: cxsf owsa punt jcqs
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:vinh9a72003@gmail.com}
+    password: ${SPRING_MAIL_PASSWORD:cxsf owsa punt jcqs}
     properties:
       mail:
         smtp:
@@ -35,16 +35,16 @@ spring:
   # --- 1. MONGODB ---
   data:
     mongodb:
-      uri: mongodb://admin:admin_password@localhost:27017/doc_management_db?authSource=admin
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://admin:admin_password@localhost:27017/doc_management_db?authSource=admin}
       auto-index-creation: true # Tự động tạo index (@Indexed)
 
   # --- 2. ELASTICSEARCH ---
   elasticsearch:
-    uris: http://localhost:9200
+    uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
     socket-timeout: 10s
     connection-timeout: 5s
     username: elastic
-    password: dyLuGaROSNhYQ9Jvq9vD
+    password: ${ELASTIC_PASSWORD:dyLuGaROSNhYQ9Jvq9vD}
 
   # --- 3. FILE UPLOAD LIMITS ---
   servlet:
@@ -61,19 +61,19 @@ spring:
 # --- 5. CUSTOM APP CONFIG ---
 app:
   jwt:
-    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970 # Chuỗi bí mật (64 bytes hex)
-    expiration-ms: 3600000        # 1 giờ (Access Token)
-    refresh-expiration-ms: 604800000 # 7 ngày (Refresh Token)
+    secret: ${APP_JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970} # Chuỗi bí mật (64 bytes hex)
+    expiration-ms: ${JWT_EXPIRATION_MS:3600000}        # 1 giờ (Access Token)
+    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000} # 7 ngày (Refresh Token)
 
   security:
-    master-key: "MY_SUPER_SECRET_MASTER_KEY_CHANGE_ME" # Dùng để mã hóa FileKey trong DB (Tạm thời để đây)
+    master-key: ${APP_SECURITY_MASTER_KEY:MY_SUPER_SECRET_MASTER_KEY_CHANGE_ME} # Dùng để mã hóa FileKey trong DB (Tạm thời để đây)
 
     # Cấu hình logic khóa tài khoản (Tránh hardcode trong Java)
     max-failed-attempts: 5                # Sai 5 lần thì khóa
     lock-time-duration-minutes: 30        # Khóa trong 30 phút
     token-expiration-minutes: 15          # Token xác thực/reset pass sống trong 15 phút
 
-  frontend-url: http://localhost:3030
+  frontend-url: ${APP_FRONTEND_URL:http://localhost:3030}
 
   trash:
     retention-days: 30
@@ -85,8 +85,8 @@ app:
     retention-days: 30
 
   google:
-    client-id: 352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com
+    client-id: ${APP_GOOGLE_CLIENT_ID:352828339396-mtu0rcf8j5i5e137lhb94rnj8m9selnm.apps.googleusercontent.com}
 
-  tika-url: http://localhost:9998
-  clip-url: http://localhost:51000
-  whisper-url: http://localhost:8000
+  tika-url: ${APP_TIKA_URL:http://localhost:9998}
+  clip-url: ${APP_CLIP_URL:http://localhost:51000}
+  whisper-url: ${APP_WHISPER_URL:http://localhost:8000}

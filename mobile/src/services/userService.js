@@ -2,9 +2,9 @@ import axiosClient from '../api/axiosClient';
 
 /**
  * =============================================================================
- * USER SERVICE (MOBILE VERSION)
+ * USER SERVICE (REACT NATIVE VERSION)
  * =============================================================================
- * Service xử lý các API liên quan đến user: 
+ * Service xử lý các API liên quan đến user:
  * - Profile management
  * - User lookup
  * - Password management
@@ -25,14 +25,16 @@ const getProfile = () => {
 
 /**
  * Cập nhật thông tin profile
- * * LƯU Ý CHO MOBILE: 
+ * 
+ * LƯU Ý CHO MOBILE:
  * Khi gửi ảnh qua FormData trên React Native, object file phải có dạng:
  * {
- * uri: 'file:///path/to/image.jpg',
- * type: 'image/jpeg', // Mime type chuẩn
- * name: 'avatar.jpg'  // Tên file
+ *   uri: 'file:///path/to/image.jpg',
+ *   type: 'image/jpeg',
+ *   name: 'avatar.jpg'
  * }
- * * @param {FormData} formData - FormData chứa các trường cần cập nhật
+ * 
+ * @param {FormData} formData - FormData chứa các trường cần cập nhật
  * @returns {Promise} Response chứa profile đã cập nhật
  */
 const updateProfile = (formData) => {
@@ -45,18 +47,17 @@ const updateProfile = (formData) => {
 
 /**
  * Cập nhật chỉ avatar
- * * @param {Object} avatarAsset - Asset từ ImagePicker hoặc DocumentPicker
+ * @param {Object} avatarAsset - Asset từ ImagePicker { uri, mimeType, name }
  * @returns {Promise} Response chứa URL avatar mới
  */
 const updateAvatar = (avatarAsset) => {
-    // Tự động tạo FormData để tiện sử dụng ở UI
     const formData = new FormData();
-    
+
     // Xử lý object file cho React Native
     const filePayload = {
         uri: avatarAsset.uri,
-        type: avatarAsset.mimeType || 'image/jpeg', // Fallback nếu thiếu type
-        name: avatarAsset.name || `avatar_${Date.now()}.jpg`
+        type: avatarAsset.mimeType || avatarAsset.type || 'image/jpeg',
+        name: avatarAsset.name || avatarAsset.fileName || `avatar_${Date.now()}.jpg`
     };
 
     formData.append('avatar', filePayload);
@@ -78,7 +79,7 @@ const updateAvatar = (avatarAsset) => {
  * @returns {Promise} Response chứa user info
  */
 const findUserByEmail = (email) => {
-    return axiosClient.get(`/users/find-by-email`, {
+    return axiosClient.get('/users/find-by-email', {
         params: { email }
     });
 };

@@ -20,7 +20,7 @@ const AuthLayout = ({ children, title, subtitle }) => {
                     {/* Logo (Thay thế AppLogo) */}
                     <View style={styles.logoContainer}>
                         <View style={styles.logoCircle}>
-                            <FontAwesome5 name="folder-open" size={32} color="#2563EB" />
+                            <FontAwesome5 name="shield-alt" size={32} color="#2563EB" />
                         </View>
                     </View>
 

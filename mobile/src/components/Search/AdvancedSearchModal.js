@@ -9,10 +9,10 @@ import { Picker } from '@react-native-picker/picker';
 
 // Hooks
 import useFolderList from '../../hooks/useFolderList';
-import useUserSearch from '../../hooks/useUserSearch'; // Hook tìm user
+import useUserSearch from '../../hooks/useUserSearch';
 
 // Utils
-import { formatDate } from '../../utils/format';
+import { formatDateShort } from '../../utils/format';
 
 const FILE_TYPES = [
   { value: '', label: 'Tất cả' },
@@ -27,7 +27,6 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
   // 1. Data Hooks
   const { folderOptions } = useFolderList();
   
-  // Hook tìm kiếm user (Load user khi nhập email)
   const {
       searchEmail,
       setSearchEmail,
@@ -61,12 +60,10 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
         fileType: initialValues?.fileType || '',
         inTrash: initialValues?.inTrash || false,
       });
-      // Set email vào hook search user để hiển thị nếu đã có
       setSearchEmail(initialValues?.ownerEmail || '');
     }
   }, [visible, initialValues]);
 
-  // Sync email từ hook user search ngược lại filters state
   useEffect(() => {
       setFilters(prev => ({ ...prev, ownerEmail: searchEmail }));
   }, [searchEmail]);
@@ -75,7 +72,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
   const handleApply = () => {
     const payload = {
       ...filters,
-      ownerEmail: searchEmail, // Lấy email từ hook search
+      ownerEmail: searchEmail,
       fromDate: filters.fromDate ? filters.fromDate.toISOString().split('T')[0] : '',
       toDate: filters.toDate ? filters.toDate.toISOString().split('T')[0] : ''
     };
@@ -90,7 +87,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
 
   const onDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') setShowDatePicker(false);
-    if (selectedDate && dateField) {
+    if (event.type === 'set' && selectedDate && dateField) {
       setFilters(prev => ({ ...prev, [dateField]: selectedDate }));
     }
   };
@@ -100,9 +97,19 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
     setShowDatePicker(true);
   };
 
+  const closeDatePickerIOS = () => {
+    setShowDatePicker(false);
+    setDateField(null);
+  };
+
+  // Xóa ngày đã chọn
+  const clearDate = (field) => {
+    setFilters(prev => ({ ...prev, [field]: null }));
+  };
+
   const renderDateText = (date, placeholder) => {
     if (!date) return <Text style={styles.placeholderText}>{placeholder}</Text>;
-    return <Text style={styles.valueText}>{formatDate(date)}</Text>;
+    return <Text style={styles.valueText}>{formatDateShort(date)}</Text>;
   };
 
   return (
@@ -118,7 +125,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             
             {/* 1. Loại file */}
             <Text style={styles.label}>Loại tài liệu</Text>
@@ -126,7 +133,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
               <View style={styles.typeContainer}>
                 {FILE_TYPES.map(type => (
                   <TouchableOpacity
-                    key={type.value}
+                    key={type.value || 'all'}
                     style={[
                       styles.typeChip, 
                       filters.fileType === type.value && styles.typeChipActive
@@ -144,7 +151,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
               </View>
             </ScrollView>
 
-            {/* 2. Người tạo (User Search Integration) */}
+            {/* 2. Người tạo */}
             <Text style={styles.label}>Người tạo</Text>
             <View>
                 <View style={styles.inputWrapper}>
@@ -159,13 +166,23 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
                     {isUserSearching && (
                         <ActivityIndicator style={styles.inputIcon} size="small" color="#2563EB" />
                     )}
+                    {searchEmail.length > 0 && !isUserSearching && (
+                        <TouchableOpacity 
+                            style={styles.inputIcon} 
+                            onPress={() => {
+                                setSearchEmail('');
+                                resetUserSearch();
+                            }}
+                        >
+                            <FontAwesome5 name="times-circle" size={16} color="#9CA3AF" />
+                        </TouchableOpacity>
+                    )}
                 </View>
                 
-                {/* Hiển thị User tìm thấy */}
                 {foundUser && (
                     <View style={styles.userCard}>
-                        {foundUser.avatar ? (
-                            <Image source={{ uri: foundUser.avatar }} style={styles.avatar} />
+                        {foundUser.avatarUrl ? (
+                            <Image source={{ uri: foundUser.avatarUrl }} style={styles.avatar} />
                         ) : (
                             <View style={[styles.avatar, { backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center' }]}>
                                 <FontAwesome5 name="user" size={14} color="#2563EB" />
@@ -179,7 +196,6 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
                     </View>
                 )}
                 
-                {/* Hiển thị lỗi nếu không tìm thấy */}
                 {userError ? (
                     <Text style={styles.errorText}>{userError}</Text>
                 ) : null}
@@ -195,7 +211,7 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
                 itemStyle={{ fontSize: 14, height: 120 }}
               >
                 <Picker.Item label="-- Tất cả (Gốc) --" value="" />
-                {folderOptions.map((folder) => (
+                {Array.isArray(folderOptions) && folderOptions.map((folder) => (
                   <Picker.Item 
                     key={folder.id} 
                     label={folder.level > 0 ? `  ${'-- '.repeat(folder.level)}${folder.name}` : folder.name} 
@@ -208,47 +224,95 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
             {/* 4. Thời gian */}
             <Text style={styles.label}>Thời gian</Text>
             <View style={styles.row}>
-              <TouchableOpacity style={styles.dateInput} onPress={() => openDatePicker('fromDate')}>
-                <Text style={styles.subLabel}>Từ ngày</Text>
-                <View style={styles.dateValueRow}>
-                  <FontAwesome5 name="calendar-alt" size={14} color="#6B7280" />
-                  {renderDateText(filters.fromDate, 'Chọn ngày')}
-                </View>
-              </TouchableOpacity>
+              {/* From Date */}
+              <View style={styles.dateInputContainer}>
+                <TouchableOpacity style={styles.dateInput} onPress={() => openDatePicker('fromDate')}>
+                  <Text style={styles.subLabel}>Từ ngày</Text>
+                  <View style={styles.dateValueRow}>
+                    <FontAwesome5 name="calendar-alt" size={14} color="#6B7280" />
+                    {renderDateText(filters.fromDate, 'Chọn ngày')}
+                  </View>
+                </TouchableOpacity>
+                {/* Nút xóa ngày */}
+                {filters.fromDate && (
+                  <TouchableOpacity 
+                    style={styles.clearDateBtn} 
+                    onPress={() => clearDate('fromDate')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <FontAwesome5 name="times-circle" size={16} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
               <View style={{ width: 12 }} />
-              <TouchableOpacity style={styles.dateInput} onPress={() => openDatePicker('toDate')}>
-                <Text style={styles.subLabel}>Đến ngày</Text>
-                <View style={styles.dateValueRow}>
-                  <FontAwesome5 name="calendar-alt" size={14} color="#6B7280" />
-                  {renderDateText(filters.toDate, 'Chọn ngày')}
-                </View>
-              </TouchableOpacity>
+
+              {/* To Date */}
+              <View style={styles.dateInputContainer}>
+                <TouchableOpacity style={styles.dateInput} onPress={() => openDatePicker('toDate')}>
+                  <Text style={styles.subLabel}>Đến ngày</Text>
+                  <View style={styles.dateValueRow}>
+                    <FontAwesome5 name="calendar-alt" size={14} color="#6B7280" />
+                    {renderDateText(filters.toDate, 'Chọn ngày')}
+                  </View>
+                </TouchableOpacity>
+                {/* Nút xóa ngày */}
+                {filters.toDate && (
+                  <TouchableOpacity 
+                    style={styles.clearDateBtn} 
+                    onPress={() => clearDate('toDate')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <FontAwesome5 name="times-circle" size={16} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
-            {showDatePicker && (
+            {/* Android DatePicker */}
+            {showDatePicker && Platform.OS === 'android' && (
               <DateTimePicker
                 value={filters[dateField] || new Date()}
                 mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                display="default"
                 onChange={onDateChange}
                 maximumDate={new Date()}
               />
             )}
             
-            {Platform.OS === 'ios' && showDatePicker && (
-               <TouchableOpacity style={styles.iosCloseBtn} onPress={() => setShowDatePicker(false)}>
-                 <Text style={{color: 'blue', fontWeight: 'bold'}}>Xong</Text>
-               </TouchableOpacity>
+            {/* iOS DatePicker */}
+            {showDatePicker && Platform.OS === 'ios' && (
+              <View style={styles.iosDatePickerContainer}>
+                <View style={styles.iosDatePickerHeader}>
+                  <Text style={styles.iosDatePickerTitle}>
+                    {dateField === 'fromDate' ? 'Từ ngày' : 'Đến ngày'}
+                  </Text>
+                  <TouchableOpacity onPress={closeDatePickerIOS}>
+                    <Text style={styles.iosDatePickerDone}>Xong</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={filters[dateField] || new Date()}
+                  mode="date"
+                  display="spinner"
+                  onChange={onDateChange}
+                  maximumDate={new Date()}
+                  style={styles.iosDatePicker}
+                />
+              </View>
             )}
 
             {/* 5. Switch Thùng rác */}
             <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Tìm trong thùng rác</Text>
+              <View style={styles.switchLabelContainer}>
+                <FontAwesome5 name="trash" size={14} color="#DC2626" />
+                <Text style={styles.switchLabel}>Tìm trong thùng rác</Text>
+              </View>
               <Switch
                 value={filters.inTrash}
                 onValueChange={(val) => setFilters({ ...filters, inTrash: val })}
-                trackColor={{ false: "#767577", true: "#93C5FD" }}
-                thumbColor={filters.inTrash ? "#2563EB" : "#f4f3f4"}
+                trackColor={{ false: "#D1D5DB", true: "#FCA5A5" }}
+                thumbColor={filters.inTrash ? "#DC2626" : "#f4f3f4"}
               />
             </View>
 
@@ -258,9 +322,11 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
           {/* Footer */}
           <View style={styles.footer}>
             <TouchableOpacity onPress={handleReset} style={styles.resetBtn}>
+              <FontAwesome5 name="undo" size={14} color="#6B7280" />
               <Text style={styles.resetText}>Đặt lại</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleApply} style={styles.applyBtn}>
+              <FontAwesome5 name="search" size={14} color="#fff" />
               <Text style={styles.applyText}>Áp dụng</Text>
             </TouchableOpacity>
           </View>
@@ -271,43 +337,271 @@ const AdvancedSearchModal = ({ visible, onClose, onApply, initialValues }) => {
 };
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContainer: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '90%' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  title: { fontSize: 18, fontWeight: 'bold' },
-  body: { paddingHorizontal: 20 },
-  label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8, marginTop: 16 },
-  subLabel: { fontSize: 11, color: '#6B7280', marginBottom: 2 },
+  overlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    justifyContent: 'flex-end' 
+  },
+  modalContainer: { 
+    backgroundColor: 'white', 
+    borderTopLeftRadius: 20, 
+    borderTopRightRadius: 20, 
+    maxHeight: '90%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20
+  },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 20, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F3F4F6' 
+  },
+  title: { 
+    fontSize: 18, 
+    fontWeight: 'bold',
+    color: '#1F2937'
+  },
+  body: { 
+    paddingHorizontal: 20 
+  },
+  label: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#374151', 
+    marginBottom: 8, 
+    marginTop: 16 
+  },
+  subLabel: { 
+    fontSize: 11, 
+    color: '#6B7280', 
+    marginBottom: 2 
+  },
   
   // User Search Styles
-  inputWrapper: { position: 'relative' },
-  input: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 14, paddingRight: 40 },
-  inputIcon: { position: 'absolute', right: 10, top: 12 },
-  userCard: { flexDirection: 'row', alignItems: 'center', marginTop: 8, padding: 8, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-  avatar: { width: 32, height: 32, borderRadius: 16, marginRight: 10 },
-  userName: { fontSize: 13, fontWeight: '600', color: '#1F2937' },
-  userEmail: { fontSize: 12, color: '#6B7280' },
-  errorText: { fontSize: 12, color: '#DC2626', marginTop: 4 },
+  inputWrapper: { 
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  input: { 
+    flex: 1,
+    borderWidth: 1, 
+    borderColor: '#D1D5DB', 
+    borderRadius: 8, 
+    padding: 12, 
+    fontSize: 14, 
+    paddingRight: 40,
+    backgroundColor: '#F9FAFB'
+  },
+  inputIcon: { 
+    position: 'absolute', 
+    right: 12, 
+    top: 12 
+  },
+  userCard: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginTop: 8, 
+    padding: 10, 
+    backgroundColor: '#D1FAE5', 
+    borderRadius: 10, 
+    borderWidth: 1, 
+    borderColor: '#6EE7B7' 
+  },
+  avatar: { 
+    width: 36, 
+    height: 36, 
+    borderRadius: 18, 
+    marginRight: 10 
+  },
+  userName: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#065F46' 
+  },
+  userEmail: { 
+    fontSize: 12, 
+    color: '#047857' 
+  },
+  errorText: { 
+    fontSize: 12, 
+    color: '#DC2626', 
+    marginTop: 4 
+  },
 
-  pickerWrapper: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, overflow: 'hidden', backgroundColor: '#F9FAFB' },
-  typeContainer: { flexDirection: 'row', gap: 8, paddingRight: 20 },
-  typeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB', marginRight: 8 },
-  typeChipActive: { backgroundColor: '#EFF6FF', borderColor: '#3B82F6' },
-  typeText: { fontSize: 12, color: '#4B5563' },
-  typeTextActive: { color: '#2563EB', fontWeight: '500' },
-  row: { flexDirection: 'row' },
-  dateInput: { flex: 1, borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 10, backgroundColor: '#F9FAFB' },
-  dateValueRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  valueText: { fontSize: 14, color: '#1F2937', fontWeight: '500' },
-  placeholderText: { fontSize: 14, color: '#9CA3AF' },
-  iosCloseBtn: { alignItems: 'flex-end', padding: 10, backgroundColor: '#F3F4F6' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  switchLabel: { fontSize: 14, color: '#374151', fontWeight: '500' },
-  footer: { padding: 20, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexDirection: 'row', gap: 12, backgroundColor: 'white' },
-  resetBtn: { flex: 1, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center' },
-  resetText: { fontWeight: '600', color: '#374151' },
-  applyBtn: { flex: 2, padding: 14, borderRadius: 10, backgroundColor: '#2563EB', alignItems: 'center' },
-  applyText: { fontWeight: '600', color: 'white' }
+  // Picker
+  pickerWrapper: { 
+    borderWidth: 1, 
+    borderColor: '#D1D5DB', 
+    borderRadius: 8, 
+    overflow: 'hidden', 
+    backgroundColor: '#F9FAFB' 
+  },
+
+  // Type chips
+  typeContainer: { 
+    flexDirection: 'row', 
+    gap: 8, 
+    paddingRight: 20,
+    paddingBottom: 4
+  },
+  typeChip: { 
+    paddingVertical: 8, 
+    paddingHorizontal: 14, 
+    borderRadius: 20, 
+    borderWidth: 1, 
+    borderColor: '#E5E7EB', 
+    backgroundColor: '#F9FAFB', 
+    marginRight: 8 
+  },
+  typeChipActive: { 
+    backgroundColor: '#3B82F6', 
+    borderColor: '#3B82F6' 
+  },
+  typeText: { 
+    fontSize: 13, 
+    color: '#6B7280',
+    fontWeight: '500'
+  },
+  typeTextActive: { 
+    color: '#fff', 
+    fontWeight: '600' 
+  },
+
+  // Date
+  row: { 
+    flexDirection: 'row' 
+  },
+  dateInputContainer: {
+    flex: 1,
+    position: 'relative'
+  },
+  dateInput: { 
+    flex: 1, 
+    borderWidth: 1, 
+    borderColor: '#D1D5DB', 
+    borderRadius: 8, 
+    padding: 10, 
+    backgroundColor: '#F9FAFB' 
+  },
+  dateValueRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 8, 
+    marginTop: 2 
+  },
+  valueText: { 
+    fontSize: 14, 
+    color: '#1F2937', 
+    fontWeight: '500' 
+  },
+  placeholderText: { 
+    fontSize: 14, 
+    color: '#9CA3AF' 
+  },
+  clearDateBtn: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    padding: 4,
+    zIndex: 1
+  },
+
+  // iOS DatePicker
+  iosDatePickerContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    marginTop: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB'
+  },
+  iosDatePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#fff'
+  },
+  iosDatePickerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151'
+  },
+  iosDatePickerDone: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#3B82F6'
+  },
+  iosDatePicker: {
+    height: 180
+  },
+
+  // Switch
+  switchRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginTop: 20, 
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12
+  },
+  switchLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  switchLabel: { 
+    fontSize: 14, 
+    color: '#374151', 
+    fontWeight: '600' 
+  },
+
+  // Footer
+  footer: { 
+    padding: 20, 
+    borderTopWidth: 1, 
+    borderTopColor: '#F3F4F6', 
+    flexDirection: 'row', 
+    gap: 12, 
+    backgroundColor: 'white' 
+  },
+  resetBtn: { 
+    flex: 1, 
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 14, 
+    borderRadius: 12, 
+    backgroundColor: '#F3F4F6'
+  },
+  resetText: { 
+    fontWeight: '600', 
+    color: '#6B7280',
+    fontSize: 15
+  },
+  applyBtn: { 
+    flex: 2, 
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 14, 
+    borderRadius: 12, 
+    backgroundColor: '#3B82F6'
+  },
+  applyText: { 
+    fontWeight: '600', 
+    color: '#fff',
+    fontSize: 15
+  }
 });
 
 export default AdvancedSearchModal;

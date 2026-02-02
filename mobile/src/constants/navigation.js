@@ -1,70 +1,140 @@
 /**
- * Cấu hình menu navigation cho Sidebar
- * icon: Tên icon trong bộ FontAwesome5 của @expo/vector-icons
+ * =============================================================================
+ * NAVIGATION CONSTANTS
+ * =============================================================================
+ * Cấu hình menu navigation cho TabBar và Sidebar
+ * Phân chia theo role: User và Admin
+ * =============================================================================
  */
-export const SIDEBAR_MENUS = [
+
+// =============================================================================
+// USER NAVIGATION
+// =============================================================================
+
+/**
+ * Các tab hiển thị trên TabBar cho User thường
+ */
+export const USER_TAB_MENUS = [
     {
-        path: '/', 
-        screen: 'Dashboard', // Tên màn hình trong React Navigation
-        name: 'Tài liệu của tôi',
-        icon: 'folder', 
-        exact: true
+        name: 'HomeTab',
+        screen: 'DashboardScreen',
+        label: 'Trang chủ',
+        icon: 'home'
     },
     {
-        path: '/shared',
-        screen: 'Shared',
-        name: 'Được chia sẻ',
+        name: 'SharedTab',
+        screen: 'SharedScreen',
+        label: 'Được chia sẻ',
         icon: 'share-alt'
     },
     {
-        path: '/requests',
-        screen: 'Requests',
-        name: 'Yêu cầu truy cập',
-        icon: 'user-shield'
-    },
-    {
-        path: '/recent',
-        screen: 'Recent',
-        name: 'Gần đây',
+        name: 'RecentTab',
+        screen: 'RecentScreen',
+        label: 'Gần đây',
         icon: 'clock'
-    },
-    {
-        path: '/trash',
-        screen: 'Trash',
-        name: 'Thùng rác',
-        icon: 'trash'
-    },
-    {
-        path: '/activities',
-        screen: 'Activities',
-        name: 'Lịch sử',
-        icon: 'history'
-    },
+    }
 ];
 
 /**
- * Menu dành riêng cho Admin
+ * Các mục hiển thị trong Sidebar cho User thường
+ * (Những mục KHÔNG có trong TabBar)
+ */
+export const USER_SIDEBAR_MENUS = [
+    {
+        screen: 'RequestsScreen',
+        label: 'Yêu cầu truy cập',
+        icon: 'user-shield'
+    },
+    {
+        screen: 'TrashScreen',
+        label: 'Thùng rác',
+        icon: 'trash'
+    },
+    {
+        screen: 'ActivitiesScreen',
+        label: 'Lịch sử hoạt động',
+        icon: 'history'
+    }
+];
+
+// =============================================================================
+// ADMIN NAVIGATION
+// =============================================================================
+
+/**
+ * Các tab hiển thị trên TabBar cho Admin
+ */
+export const ADMIN_TAB_MENUS = [
+    {
+        name: 'MonitorTab',
+        screen: 'AdminMonitorScreen',
+        label: 'Giám sát',
+        icon: 'chart-pie'
+    },
+    {
+        name: 'LogsTab',
+        screen: 'AdminLogsScreen',
+        label: 'Nhật ký',
+        icon: 'clipboard-list'
+    },
+    {
+        name: 'UsersTab',
+        screen: 'AdminUsersScreen',
+        label: 'Người dùng',
+        icon: 'users-cog'
+    }
+];
+
+/**
+ * Các mục hiển thị trong Sidebar cho Admin
+ * Bao gồm cả menu User + các tiện ích khác
  */
 export const ADMIN_SIDEBAR_MENUS = [
+    // Quay về chế độ User
     {
-        path: '/admin/users',
-        screen: 'AdminUsers',
-        name: 'Quản lý người dùng',
-        icon: 'users-cog',
-        exact: true
+        screen: 'UserDashboard', // <--- SỬA TỪ 'HomeTab' THÀNH 'UserDashboard'
+        label: 'Tài liệu của tôi',
+        icon: 'folder',
+        isUserMode: false // Đặt false vì ta đang navigate stack bình thường
     },
     {
-        path: '/admin/logs',
-        screen: 'AdminLogs',
-        name: 'Nhật ký hệ thống',
-        icon: 'clipboard-list',
-        exact: true
+        screen: 'UserShared', // <--- SỬA TỪ 'SharedScreen' THÀNH 'UserShared'
+        label: 'Được chia sẻ',
+        icon: 'share-alt'
     },
     {
-        path: '/admin/monitor',
-        screen: 'AdminMonitor',
-        name: 'Giám sát tài liệu',
-        icon: 'chart-pie', // Icon biểu đồ tròn
-        exact: true
+        screen: 'RecentScreen',
+        label: 'Gần đây',
+        icon: 'clock'
+    },
+    {
+        screen: 'RequestsScreen',
+        label: 'Yêu cầu truy cập',
+        icon: 'user-shield'
+    },
+    {
+        screen: 'TrashScreen',
+        label: 'Thùng rác',
+        icon: 'trash'
+    },
+    {
+        screen: 'ActivitiesScreen',
+        label: 'Lịch sử hoạt động',
+        icon: 'history'
+    }
+];
+
+// =============================================================================
+// COMMON
+// =============================================================================
+
+/**
+ * Menu cố định ở footer sidebar (cho cả User và Admin)
+ */
+export const SIDEBAR_FOOTER_MENUS = [
+    {
+        screen: 'ProfileScreen',
+        label: 'Cá nhân',
+        icon: 'user-circle'
     }
 ];

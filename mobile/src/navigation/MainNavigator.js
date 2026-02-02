@@ -1,73 +1,135 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { Platform } from 'react-native';
+import { Platform, View, Text, StyleSheet } from 'react-native';
 
-// Import các màn hình vừa tạo
+import { AuthContext } from '../context/AuthContext';
+import { USER_TAB_MENUS, ADMIN_TAB_MENUS } from '../constants/navigation';
+
+// ===== USER SCREENS =====
 import DashboardScreen from '../screens/Dashboard/DashboardScreen';
-import FileExplorerScreen from '../screens/FileExplorer/FileExplorerScreen';
 import SharedScreen from '../screens/Shared/SharedScreen';
-import ProfileScreen from '../screens/Profile/ProfileScreen';
+import RecentScreen from '../screens/Recent/RecentScreen';
+
+// ===== ADMIN SCREENS =====
+import AdminMonitorScreen from '../screens/Admin/AdminMonitorScreen';
+import AdminLogsScreen from '../screens/Admin/AdminLogsScreen';
+import AdminUsersScreen from '../screens/Admin/AdminUsersScreen';
 
 const Tab = createBottomTabNavigator();
 
+/**
+ * Map screen name to component
+ */
+const SCREEN_COMPONENTS = {
+    // User screens
+    DashboardScreen,
+    SharedScreen,
+    RecentScreen,
+    // Admin screens
+    AdminMonitorScreen,
+    AdminLogsScreen,
+    AdminUsersScreen
+};
+
+/**
+ * Placeholder screen cho các màn hình chưa tạo
+ */
+const PlaceholderScreen = ({ route }) => (
+    <View style={styles.placeholder}>
+        <FontAwesome5 name="tools" size={48} color="#9CA3AF" />
+        <Text style={styles.placeholderTitle}>{route.name}</Text>
+        <Text style={styles.placeholderText}>Màn hình đang phát triển</Text>
+    </View>
+);
+
+/**
+ * MainNavigator - Bottom Tab Navigation
+ * Hiển thị TabBar khác nhau dựa trên role của user
+ */
 const MainNavigator = () => {
+    const { user } = useContext(AuthContext);
+    
+    // Kiểm tra quyền Admin
+    const isAdmin = user?.roles?.includes('ROLE_ADMIN');
+    
+    // Chọn menu phù hợp với role
+    const tabMenus = isAdmin ? ADMIN_TAB_MENUS : USER_TAB_MENUS;
+
     return (
         <Tab.Navigator
             screenOptions={({ route }) => ({
-                headerShown: false, // Ẩn header mặc định của Tab (chúng ta sẽ tự custom Header sau)
-                tabBarActiveTintColor: '#2563EB', // Màu xanh active giống Web
-                tabBarInactiveTintColor: '#6B7280', // Màu xám inactive
+                headerShown: false,
+                tabBarActiveTintColor: '#2563EB',
+                tabBarInactiveTintColor: '#6B7280',
                 tabBarStyle: {
-                    height: Platform.OS === 'ios' ? 88 : 60,
-                    paddingBottom: Platform.OS === 'ios' ? 28 : 8,
-                    paddingTop: 8,
+                    height: Platform.OS === 'ios' ? 88 : 64,
+                    paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+                    paddingTop: 10,
+                    backgroundColor: 'white',
+                    borderTopWidth: 1,
+                    borderTopColor: '#E5E7EB',
+                    elevation: 8,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: -2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4
                 },
                 tabBarLabelStyle: {
-                    fontSize: 12,
-                    fontWeight: '500',
+                    fontSize: 11,
+                    fontWeight: '600',
+                    marginTop: 2
                 },
-                // Cấu hình Icon cho từng Tab
-                tabBarIcon: ({ focused, color, size }) => {
-                    let iconName;
-
-                    if (route.name === 'HomeTab') {
-                        iconName = 'home';
-                    } else if (route.name === 'FilesTab') {
-                        iconName = 'folder';
-                    } else if (route.name === 'SharedTab') {
-                        iconName = 'users';
-                    } else if (route.name === 'ProfileTab') {
-                        iconName = 'user-circle';
-                    }
-
-                    // Dùng solid icon khi active, regular khi inactive (nếu bộ icon hỗ trợ)
-                    return <FontAwesome5 name={iconName} size={20} color={color} solid={focused} />;
-                },
+                tabBarIcon: ({ focused, color }) => {
+                    const menu = tabMenus.find(m => m.name === route.name);
+                    return (
+                        <FontAwesome5 
+                            name={menu?.icon || 'circle'} 
+                            size={20} 
+                            color={color} 
+                            solid={focused}
+                        />
+                    );
+                }
             })}
         >
-            <Tab.Screen
-                name="HomeTab"
-                component={DashboardScreen}
-                options={{ title: 'Trang chủ' }}
-            />
-            <Tab.Screen
-                name="FilesTab"
-                component={FileExplorerScreen}
-                options={{ title: 'Tệp' }}
-            />
-            <Tab.Screen
-                name="SharedTab"
-                component={SharedScreen}
-                options={{ title: 'Đã chia sẻ' }}
-            />
-            <Tab.Screen
-                name="ProfileTab"
-                component={ProfileScreen}
-                options={{ title: 'Cá nhân' }}
-            />
+            {tabMenus.map((menu) => {
+                const ScreenComponent = SCREEN_COMPONENTS[menu.screen] || PlaceholderScreen;
+                return (
+                    <Tab.Screen
+                        key={menu.name}
+                        name={menu.name}
+                        component={ScreenComponent}
+                        options={{ 
+                            title: menu.label,
+                            tabBarLabel: menu.label
+                        }}
+                    />
+                );
+            })}
         </Tab.Navigator>
     );
 };
+
+const styles = StyleSheet.create({
+    placeholder: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+        padding: 20
+    },
+    placeholderTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#374151',
+        marginTop: 16
+    },
+    placeholderText: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 8
+    }
+});
 
 export default MainNavigator;

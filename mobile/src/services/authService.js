@@ -2,9 +2,9 @@ import axiosClient from '../api/axiosClient';
 
 /**
  * =============================================================================
- * AUTH SERVICE
+ * AUTH SERVICE (REACT NATIVE VERSION)
  * =============================================================================
- * Service xử lý tất cả API liên quan đến authentication: 
+ * Service xử lý tất cả API liên quan đến authentication:
  * - Đăng nhập / Đăng ký
  * - OAuth (Google)
  * - Xác thực email
@@ -24,20 +24,20 @@ import axiosClient from '../api/axiosClient';
  * @returns {Promise} Response chứa user info và tokens
  */
 const login = (username, password) => {
-  return axiosClient.post('/auth/signin', { username, password });
+    return axiosClient.post('/auth/signin', { username, password });
 };
 
 /**
  * Đăng ký tài khoản mới
  * @param {Object} data - Thông tin đăng ký
- * @param {string} data. username - Tên đăng nhập
- * @param {string} data. email - Email
+ * @param {string} data.username - Tên đăng nhập
+ * @param {string} data.email - Email
  * @param {string} data.password - Mật khẩu
  * @param {string} [data.fullName] - Họ tên đầy đủ
  * @returns {Promise} Response
  */
 const register = (data) => {
-  return axiosClient.post('/auth/signup', data);
+    return axiosClient.post('/auth/signup', data);
 };
 
 /**
@@ -45,7 +45,7 @@ const register = (data) => {
  * @returns {Promise} Response
  */
 const logout = () => {
-  return axiosClient.post('/auth/signout');
+    return axiosClient.post('/auth/signout');
 };
 
 // =============================================================================
@@ -58,7 +58,7 @@ const logout = () => {
  * @returns {Promise} Response chứa user info và tokens
  */
 const googleLogin = (idToken) => {
-  return axiosClient.post('/auth/google', { idToken });
+    return axiosClient.post('/auth/google', { idToken });
 };
 
 // =============================================================================
@@ -71,9 +71,9 @@ const googleLogin = (idToken) => {
  * @returns {Promise} Response
  */
 const verifyAccount = (token) => {
-  return axiosClient.get('/auth/verify', {
-    params: { token }
-  });
+    return axiosClient.get('/auth/verify', {
+        params: { token }
+    });
 };
 
 /**
@@ -82,9 +82,9 @@ const verifyAccount = (token) => {
  * @returns {Promise} Response
  */
 const resendVerification = (email) => {
-  return axiosClient.post('/auth/resend-verification', null, {
-    params: { email }
-  });
+    return axiosClient.post('/auth/resend-verification', null, {
+        params: { email }
+    });
 };
 
 // =============================================================================
@@ -97,9 +97,9 @@ const resendVerification = (email) => {
  * @returns {Promise} Response
  */
 const forgotPassword = (email) => {
-  return axiosClient.post('/auth/forgot-password', null, {
-    params: { email }
-  });
+    return axiosClient.post('/auth/forgot-password', null, {
+        params: { email }
+    });
 };
 
 /**
@@ -109,7 +109,7 @@ const forgotPassword = (email) => {
  * @returns {Promise} Response
  */
 const resetPassword = (token, newPassword) => {
-  return axiosClient.post('/auth/reset-password', { token, newPassword });
+    return axiosClient.post('/auth/reset-password', { token, newPassword });
 };
 
 /**
@@ -119,10 +119,10 @@ const resetPassword = (token, newPassword) => {
  * @returns {Promise} Response
  */
 const changePassword = (currentPassword, newPassword) => {
-  return axiosClient.put('/auth/change-password', {
-    currentPassword,
-    newPassword
-  });
+    return axiosClient.put('/auth/change-password', {
+        currentPassword,
+        newPassword
+    });
 };
 
 // =============================================================================
@@ -130,22 +130,22 @@ const changePassword = (currentPassword, newPassword) => {
 // =============================================================================
 
 const authService = {
-  // Authentication
-  login,
-  register,
-  logout,
+    // Authentication
+    login,
+    register,
+    logout,
 
-  // OAuth
-  googleLogin,
+    // OAuth
+    googleLogin,
 
-  // Email Verification
-  verifyAccount,
-  resendVerification,
+    // Email Verification
+    verifyAccount,
+    resendVerification,
 
-  // Password Reset
-  forgotPassword,
-  resetPassword,
-  changePassword,
+    // Password Reset
+    forgotPassword,
+    resetPassword,
+    changePassword,
 };
 
 export default authService;

@@ -1,0 +1,145 @@
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import Toast from 'react-native-toast-message';
+import fileService from '../services/fileService';
+
+/**
+ * Hook quản lý danh sách quyền truy cập
+ * 
+ * @param {string} fileId - ID của file
+ * @param {boolean} isOpen - Modal có đang mở không
+ * @returns {Object} State và handlers
+ */
+const useAccessList = (fileId, isOpen) => {
+    const [accessList, setAccessList] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // State cho modal xác nhận
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [revoking, setRevoking] = useState(false);
+    const [targetRevoke, setTargetRevoke] = useState(null);
+
+    // Fetch danh sách quyền
+    const fetchAccessList = useCallback(async () => {
+        if (!fileId) return;
+
+        try {
+            setLoading(true);
+            const res = await fileService.getGrantedAccessList(fileId);
+            if (res.success) {
+                setAccessList(res.data || []);
+            }
+        } catch (error) {
+            console.error('Fetch access list error:', error);
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi',
+                text2: 'Không thể tải danh sách quyền'
+            });
+        } finally {
+            setLoading(false);
+        }
+    }, [fileId]);
+
+    // Fetch khi mở modal
+    useEffect(() => {
+        if (isOpen && fileId) {
+            fetchAccessList();
+            setSearchTerm(''); // Reset search
+        }
+    }, [isOpen, fileId, fetchAccessList]);
+
+    // Nhóm dữ liệu theo user
+    const groupedUsers = useMemo(() => {
+        const groups = {};
+
+        accessList.forEach(item => {
+            if (!groups[item.userId]) {
+                groups[item.userId] = {
+                    userId: item.userId,
+                    fullName: item.userFullName,
+                    email: item.userEmail,
+                    avatar: item.userAvatar,
+                    pages: []
+                };
+            }
+            groups[item.userId].pages.push(item.pageIndex);
+        });
+
+        // Filter theo search term
+        const searchLower = searchTerm.toLowerCase();
+        return Object.values(groups).filter(user =>
+            user.fullName?.toLowerCase().includes(searchLower) ||
+            user.email?.toLowerCase().includes(searchLower)
+        );
+    }, [accessList, searchTerm]);
+
+    // Mở modal xác nhận thu hồi
+    const openRevokeConfirm = useCallback((userId, pageIndex) => {
+        setTargetRevoke({ userId, pageIndex });
+        setConfirmOpen(true);
+    }, []);
+
+    // Đóng modal xác nhận
+    const closeRevokeConfirm = useCallback(() => {
+        setConfirmOpen(false);
+        setTargetRevoke(null);
+    }, []);
+
+    // Thực hiện thu hồi quyền
+    const confirmRevoke = useCallback(async () => {
+        if (!targetRevoke) return;
+
+        const { userId, pageIndex } = targetRevoke;
+        setRevoking(true);
+
+        try {
+            const res = await fileService.revokePageAccess(fileId, userId, pageIndex);
+            if (res.success) {
+                Toast.show({
+                    type: 'success',
+                    text1: 'Thành công',
+                    text2: `Đã thu hồi quyền trang ${pageIndex + 1}`
+                });
+
+                // Cập nhật local state
+                setAccessList(prev =>
+                    prev.filter(item => !(item.userId === userId && item.pageIndex === pageIndex))
+                );
+
+                closeRevokeConfirm();
+            }
+        } catch (error) {
+            console.error('Revoke access error:', error);
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi',
+                text2: 'Thu hồi thất bại. Vui lòng thử lại.'
+            });
+        } finally {
+            setRevoking(false);
+        }
+    }, [fileId, targetRevoke, closeRevokeConfirm]);
+
+    return {
+        // Data
+        accessList,
+        groupedUsers,
+        loading,
+        searchTerm,
+
+        // Confirm modal state
+        confirmOpen,
+        revoking,
+        targetRevoke,
+
+        // Actions
+        setSearchTerm,
+        openRevokeConfirm,
+        closeRevokeConfirm,
+        confirmRevoke,
+        refetch: fetchAccessList
+    };
+};
+
+export default useAccessList;

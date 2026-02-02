@@ -1,96 +1,274 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View,
+    Text,
+    TouchableOpacity,
+    FlatList,
+    ActivityIndicator,
+    StyleSheet,
+    ScrollView
+} from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
 import CustomModal from '../Common/CustomModal';
 import fileService from '../../services/fileService';
 
-const MoveFileModal = ({ isOpen, onClose, onSuccess, selectedItems }) => {
+/**
+ * Modal di chuyển file/folder
+ * Đồng bộ với MoveFileModal.jsx trên Web
+ */
+const MoveFileModal = ({ isOpen, onClose, onSuccess, selectedItems = [] }) => {
     // State quản lý việc duyệt folder trong modal
-    const [currentId, setCurrentId] = useState(null); // null = Root
+    const [currentFolderId, setCurrentFolderId] = useState(null);
     const [folders, setFolders] = useState([]);
+    const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, name: 'Thư mục gốc' }]);
     const [loading, setLoading] = useState(false);
-    const [history, setHistory] = useState([]); // Stack để back lại
+    const [submitting, setSubmitting] = useState(false);
 
+    // Reset state khi mở modal
     useEffect(() => {
         if (isOpen) {
-            setCurrentId(null);
-            setHistory([]);
-            loadFolders(null);
+            setCurrentFolderId(null);
+            setBreadcrumbs([{ id: null, name: 'Thư mục gốc' }]);
+            fetchFolders(null);
         }
     }, [isOpen]);
 
-    const loadFolders = async (parentId) => {
+    /**
+     * Lấy danh sách folder
+     */
+    const fetchFolders = useCallback(async (parentId) => {
         setLoading(true);
         try {
-            // Gọi API lấy danh sách file, sau đó lọc lấy Folder
             const res = await fileService.getFiles(parentId);
-            const folderList = (res.data || []).filter(item => item.type === 'FOLDER');
-            setFolders(folderList);
+
+            if (res.success || res.data) {
+                const validFolders = (res.data || []).filter(item => {
+                    const isFolder = item.type === 'FOLDER';
+                    const isNotSelf = !selectedItems?.some(selected => selected?.id === item.id);
+                    return isFolder && isNotSelf;
+                });
+                setFolders(validFolders);
+            }
         } catch (error) {
-            console.log('Error loading folders', error);
+            console.error('Lỗi tải thư mục:', error);
+            Toast.show({ type: 'error', text1: 'Không thể tải danh sách thư mục' });
         } finally {
             setLoading(false);
         }
-    };
+    }, [selectedItems]);
 
-    const handleFolderPress = (folder) => {
-        setHistory([...history, { id: currentId, name: '...' }]); // Lưu lịch sử
-        setCurrentId(folder.id);
-        loadFolders(folder.id);
-    };
+    /**
+     * Đi vào folder
+     */
+    const handleEnterFolder = useCallback((folder) => {
+        setCurrentFolderId(folder.id);
+        setBreadcrumbs(prev => [...prev, { id: folder.id, name: folder.name }]);
+        fetchFolders(folder.id);
+    }, [fetchFolders]);
 
-    const handleBack = () => {
-        if (history.length === 0) return;
-        const prev = history[history.length - 1];
-        setHistory(history.slice(0, -1));
-        setCurrentId(prev.id);
-        loadFolders(prev.id);
-    };
+    /**
+     * Click breadcrumb
+     */
+    const handleBreadcrumbClick = useCallback((crumb, index) => {
+        setCurrentFolderId(crumb.id);
+        setBreadcrumbs(prev => prev.slice(0, index + 1));
+        fetchFolders(crumb.id);
+    }, [fetchFolders]);
 
-    const handleMoveHere = async () => {
-        // Gọi API Move
-        // logic gọi onSuccess(currentId)
+    /**
+     * Đóng modal - KHÔNG clear selection
+     */
+    const handleClose = useCallback(() => {
+        setCurrentFolderId(null);
+        setBreadcrumbs([{ id: null, name: 'Thư mục gốc' }]);
+        setFolders([]);
         onClose();
-    };
+    }, [onClose]);
+
+    /**
+     * Xác nhận di chuyển
+     */
+    const handleConfirmMove = useCallback(async () => {
+        if (!selectedItems || selectedItems.length === 0) {
+            Toast.show({ type: 'error', text1: 'Chưa chọn file để di chuyển' });
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const itemIds = selectedItems.map(item => item.id);
+            const res = await fileService.moveFiles(itemIds, currentFolderId);
+
+            if (res.success) {
+                Toast.show({
+                    type: 'success',
+                    text1: 'Di chuyển thành công',
+                    text2: res.message || `Đã di chuyển ${selectedItems.length} mục`
+                });
+
+                // Reset state
+                setCurrentFolderId(null);
+                setBreadcrumbs([{ id: null, name: 'Thư mục gốc' }]);
+                setFolders([]);
+
+                // Gọi onSuccess để clear selection và refresh
+                if (onSuccess) {
+                    onSuccess();
+                }
+            }
+        } catch (error) {
+            console.error('Move error:', error);
+            Toast.show({
+                type: 'error',
+                text1: 'Di chuyển thất bại',
+                text2: error.response?.data?.message || 'Vui lòng thử lại'
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    }, [selectedItems, currentFolderId, onSuccess]);
+
+    /**
+     * Render folder item
+     */
+    const renderFolderItem = useCallback(({ item }) => (
+        <TouchableOpacity
+            style={styles.folderItem}
+            onPress={() => handleEnterFolder(item)}
+            activeOpacity={0.7}
+        >
+            <View style={styles.folderIconContainer}>
+                <FontAwesome5 name="folder" size={20} color="#F59E0B" solid />
+            </View>
+            <Text style={styles.folderName} numberOfLines={1}>
+                {item.name}
+            </Text>
+            <FontAwesome5 name="chevron-right" size={12} color="#9CA3AF" />
+        </TouchableOpacity>
+    ), [handleEnterFolder]);
+
+    /**
+     * Render empty state
+     */
+    const renderEmptyState = useCallback(() => (
+        <View style={styles.emptyContainer}>
+            <FontAwesome5 name="folder-open" size={40} color="#D1D5DB" />
+            <Text style={styles.emptyText}>Thư mục trống</Text>
+            <Text style={styles.emptySubtext}>Bạn có thể di chuyển vào đây</Text>
+        </View>
+    ), []);
 
     if (!isOpen) return null;
 
     return (
-        <CustomModal visible={isOpen} onClose={onClose}>
+        <CustomModal visible={isOpen} onClose={handleClose}>
+            {/* Header */}
             <View style={styles.header}>
-                {history.length > 0 && (
-                    <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-                        <FontAwesome5 name="arrow-left" size={16} color="#333" />
-                    </TouchableOpacity>
-                )}
-                <Text style={styles.title}>Di chuyển đến</Text>
+                <View style={styles.headerIcon}>
+                    <FontAwesome5 name="arrows-alt" size={16} color="#2563EB" />
+                </View>
+                <Text style={styles.headerTitle}>
+                    Di chuyển {selectedItems?.length || 0} mục
+                </Text>
+                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                    <FontAwesome5 name="times" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
             </View>
 
+            {/* Breadcrumbs */}
+            <View style={styles.breadcrumbsWrapper}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.breadcrumbsContent}
+                >
+                    {breadcrumbs.map((crumb, index) => (
+                        <View key={crumb.id || 'root'} style={styles.breadcrumbItem}>
+                            {index > 0 && (
+                                <Text style={styles.breadcrumbSeparator}>/</Text>
+                            )}
+                            <TouchableOpacity
+                                onPress={() => handleBreadcrumbClick(crumb, index)}
+                                style={styles.breadcrumbButton}
+                            >
+                                {index === 0 && (
+                                    <FontAwesome5
+                                        name="home"
+                                        size={12}
+                                        color={index === breadcrumbs.length - 1 ? '#1F2937' : '#6B7280'}
+                                        style={styles.homeIcon}
+                                    />
+                                )}
+                                <Text
+                                    style={[
+                                        styles.breadcrumbText,
+                                        index === breadcrumbs.length - 1 && styles.breadcrumbTextActive
+                                    ]}
+                                    numberOfLines={1}
+                                >
+                                    {crumb.name}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                </ScrollView>
+            </View>
+
+            {/* Folder List */}
             <View style={styles.listContainer}>
                 {loading ? (
-                    <ActivityIndicator color="#2563EB" />
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#2563EB" />
+                        <Text style={styles.loadingText}>Đang tải...</Text>
+                    </View>
                 ) : (
                     <FlatList
                         data={folders}
-                        keyExtractor={item => item.id}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity style={styles.item} onPress={() => handleFolderPress(item)}>
-                                <FontAwesome5 name="folder" size={20} color="#F59E0B" />
-                                <Text style={styles.itemName}>{item.name}</Text>
-                                <FontAwesome5 name="chevron-right" size={12} color="#CCC" />
-                            </TouchableOpacity>
-                        )}
-                        ListEmptyComponent={<Text style={styles.empty}>Không có thư mục con</Text>}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderFolderItem}
+                        ListEmptyComponent={renderEmptyState}
+                        contentContainerStyle={folders.length === 0 ? styles.emptyListContent : undefined}
+                        showsVerticalScrollIndicator={false}
                     />
                 )}
             </View>
 
+            {/* Location Indicator */}
+            <View style={styles.locationIndicator}>
+                <FontAwesome5 name="map-marker-alt" size={12} color="#6B7280" />
+                <Text style={styles.locationText}>
+                    Vị trí: {breadcrumbs[breadcrumbs.length - 1]?.name}
+                </Text>
+            </View>
+
+            {/* Footer */}
             <View style={styles.footer}>
-                <TouchableOpacity onPress={onClose} style={styles.btnCancel}>
-                    <Text>Hủy</Text>
+                <TouchableOpacity
+                    onPress={handleClose}
+                    style={styles.cancelButton}
+                    disabled={submitting}
+                >
+                    <Text style={styles.cancelButtonText}>Hủy bỏ</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={handleMoveHere} style={styles.btnMove}>
-                    <Text style={{ color: 'white', fontWeight: 'bold' }}>Chuyển đến đây</Text>
+
+                <TouchableOpacity
+                    onPress={handleConfirmMove}
+                    style={[styles.moveButton, (submitting || loading) && styles.buttonDisabled]}
+                    disabled={submitting || loading}
+                    activeOpacity={0.8}
+                >
+                    {submitting ? (
+                        <>
+                            <ActivityIndicator size="small" color="white" />
+                            <Text style={styles.moveButtonText}>Đang chuyển...</Text>
+                        </>
+                    ) : (
+                        <>
+                            <FontAwesome5 name="check" size={14} color="white" />
+                            <Text style={styles.moveButtonText}>Chuyển đến đây</Text>
+                        </>
+                    )}
                 </TouchableOpacity>
             </View>
         </CustomModal>
@@ -98,16 +276,184 @@ const MoveFileModal = ({ isOpen, onClose, onSuccess, selectedItems }) => {
 };
 
 const styles = StyleSheet.create({
-    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, borderBottomWidth: 1, borderColor: '#EEE', paddingBottom: 10 },
-    backBtn: { marginRight: 10, padding: 5 },
-    title: { fontSize: 16, fontWeight: 'bold' },
-    listContainer: { height: 250 },
-    item: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#F9FAFB' },
-    itemName: { flex: 1, marginLeft: 10, fontSize: 15 },
-    empty: { textAlign: 'center', marginTop: 20, color: '#999' },
-    footer: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 },
-    btnCancel: { padding: 10 },
-    btnMove: { backgroundColor: '#2563EB', padding: 10, borderRadius: 8 }
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+        marginBottom: 12
+    },
+    headerIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#DBEAFE',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12
+    },
+    headerTitle: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#1F2937'
+    },
+    closeButton: {
+        padding: 8
+    },
+    breadcrumbsWrapper: {
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        marginBottom: 12
+    },
+    breadcrumbsContent: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    breadcrumbItem: {
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    breadcrumbSeparator: {
+        color: '#9CA3AF',
+        marginHorizontal: 8,
+        fontSize: 14
+    },
+    breadcrumbButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 4,
+        paddingHorizontal: 2
+    },
+    homeIcon: {
+        marginRight: 4
+    },
+    breadcrumbText: {
+        fontSize: 13,
+        color: '#6B7280'
+    },
+    breadcrumbTextActive: {
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    listContainer: {
+        height: 280,
+        backgroundColor: '#FAFAFA',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB'
+    },
+    folderItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6'
+    },
+    folderIconContainer: {
+        width: 36,
+        height: 36,
+        borderRadius: 8,
+        backgroundColor: '#FEF3C7',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12
+    },
+    folderName: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '500',
+        color: '#374151'
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    loadingText: {
+        marginTop: 12,
+        color: '#6B7280',
+        fontSize: 14
+    },
+    emptyListContent: {
+        flex: 1
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 40
+    },
+    emptyText: {
+        marginTop: 12,
+        fontSize: 15,
+        fontWeight: '500',
+        color: '#6B7280'
+    },
+    emptySubtext: {
+        marginTop: 4,
+        fontSize: 13,
+        color: '#9CA3AF'
+    },
+    locationIndicator: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        gap: 6
+    },
+    locationText: {
+        fontSize: 12,
+        color: '#6B7280'
+    },
+    footer: {
+        flexDirection: 'row',
+        gap: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB'
+    },
+    cancelButton: {
+        flex: 1,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 10,
+        alignItems: 'center'
+    },
+    cancelButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#4B5563'
+    },
+    moveButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        backgroundColor: '#2563EB',
+        borderRadius: 10,
+        shadowColor: '#2563EB',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    buttonDisabled: {
+        opacity: 0.6
+    },
+    moveButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: 'white'
+    }
 });
 
 export default MoveFileModal;

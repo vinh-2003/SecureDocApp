@@ -9,3 +9,5 @@ lưu lại và sửa vào các phần cấu hình tương ứng.
 Để chạy được ứng dụng thì chạy lệnh dưới
 cd docker
 docker compose up -d --build
+truy cập web theo đường dẫn localhost:3030
+hướng dẫn trên chỉ chạy dưới local và cho máy tính có gpu, nếu kh có gpu phải cấu hình lại cho clip-server

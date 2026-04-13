@@ -1,14 +1,37 @@
 package com.securedoc.backend.service;
 
+import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
-import com.securedoc.backend.dto.auth.*;
+import com.securedoc.backend.dto.auth.GoogleLoginRequest;
+import com.securedoc.backend.dto.auth.LoginRequest;
+import com.securedoc.backend.dto.auth.RegisterRequest;
+import com.securedoc.backend.dto.auth.ResetPasswordRequest;
+import com.securedoc.backend.dto.auth.TokenResponse;
 import com.securedoc.backend.entity.RefreshToken;
 import com.securedoc.backend.entity.Role;
 import com.securedoc.backend.entity.User;
 import com.securedoc.backend.entity.VerificationToken;
+import com.securedoc.backend.enums.EAccessAction;
 import com.securedoc.backend.enums.ERole;
 import com.securedoc.backend.exception.AppErrorCode;
 import com.securedoc.backend.exception.AppException;
@@ -18,21 +41,8 @@ import com.securedoc.backend.repository.VerificationTokenRepository;
 import com.securedoc.backend.security.jwt.JwtUtils;
 import com.securedoc.backend.security.services.RefreshTokenService;
 import com.securedoc.backend.security.services.UserDetailsImpl;
-import lombok.RequiredArgsConstructor;
-import org.modelmapper.ModelMapper;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import com.securedoc.backend.enums.EAccessAction;
-import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -227,7 +237,7 @@ public class AuthService {
         VerificationToken token = new VerificationToken(user, VerificationToken.TokenType.VERIFY_EMAIL, tokenExpirationMinutes);
         tokenRepository.save(token);
 
-        String link = frontendUrl + "/verify-account?token=" + token.getToken();
+        String link = frontendUrl + "/verify-email?token=" + token.getToken();
 
         emailService.sendEmail(user.getEmail(), "Xác thực tài khoản SecureDoc",
                 "<h3>Chào mừng đến với SecureDoc!</h3>" +
